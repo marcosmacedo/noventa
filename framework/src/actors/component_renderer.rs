@@ -1,8 +1,8 @@
 use crate::actors::interpreter::{ExecutePythonFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use actix::prelude::*;
-use minijinja;
 use serde::Deserialize;
+use std::sync::Arc;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
@@ -22,11 +22,11 @@ impl Actor for ComponentRendererActor {
 }
 
 
-#[derive(Message, Deserialize)]
+#[derive(Message)]
 #[rtype(result = "Result<HashMap<String, Value>, Error>")]
 pub struct HandleRender {
     pub name: String,
-    pub req: minijinja::Value,
+    pub req: Arc<HttpRequestInfo>,
 }
 
 impl Handler<HandleRender> for ComponentRendererActor {
@@ -37,18 +37,21 @@ impl Handler<HandleRender> for ComponentRendererActor {
         let component_name = msg.name.clone();
 
         Box::pin(async move {
-            let req_str = msg.req.to_string();
-            let req: HttpRequestInfo = serde_json::from_str(&req_str).unwrap();
+            let req = msg.req;
+            let req_str = serde_json::to_string(&*req).unwrap();
+
+            let mut args = HashMap::new();
+            args.insert("request".to_string(), req_str);
 
             let execute_fn_msg = if req.method == "GET" {
                 ExecutePythonFunction {
                     component_name,
                     function_name: "load_template_context".to_string(),
-                    args: None,
+                    args: Some(args),
                 }
             } else {
                 let form_data: HashMap<String, String> =
-                    serde_json::from_value(serde_json::Value::Object(req.form_data)).unwrap();
+                    serde_json::from_value(serde_json::Value::Object(req.form_data.clone())).unwrap();
                 let action = form_data.get("action").cloned().unwrap_or_default();
 
                 if action.is_empty() {
@@ -58,10 +61,12 @@ impl Handler<HandleRender> for ComponentRendererActor {
                     ));
                 }
 
+                args.extend(form_data);
+
                 ExecutePythonFunction {
                     component_name,
                     function_name: format!("action_{}", action),
-                    args: Some(form_data),
+                    args: Some(args),
                 }
             };
 

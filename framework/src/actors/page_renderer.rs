@@ -1,9 +1,8 @@
-use crate::actors::interpreter::PythonInterpreterActor;
 use crate::actors::template_renderer::{RenderTemplate, TemplateRendererActor};
-use crate::components::Component;
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HttpRequestInfo {
@@ -32,7 +31,7 @@ impl Actor for PageRendererActor {
 #[rtype(result = "Result<String, minijinja::Error>")]
 pub struct RenderMessage {
     pub template_path: String,
-    pub request_info: HttpRequestInfo,
+    pub request_info: Arc<HttpRequestInfo>,
 }
 
 impl Handler<RenderMessage> for PageRendererActor {
@@ -43,10 +42,7 @@ impl Handler<RenderMessage> for PageRendererActor {
         Box::pin(async move {
             let render_msg = RenderTemplate {
                 template_name: msg.template_path,
-                context: serde_json::to_value(minijinja::context! {
-                    request => minijinja::Value::from_serialize(&msg.request_info),
-                })
-                .unwrap(),
+                request_info: msg.request_info.clone(),
             };
 
             match template_renderer.send(render_msg).await {

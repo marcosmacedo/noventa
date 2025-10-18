@@ -16,6 +16,7 @@ walkdir = "2.5.0"
 futures-util = "0.3.31"
 serde_urlencoded = "0.7.1"
 uuid = { version = "1.8.0", features = ["v4"] }
+serde_with = "3.8.1"
 
 [build-dependencies]
 pyo3-build-config = "0.22.0"
