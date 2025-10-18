@@ -2,13 +2,29 @@ use crate::actors::template_renderer::{RenderTemplate, TemplateRendererActor};
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+
+#[derive(Clone, Serialize, Deserialize)]
+pub enum FileData {
+    InMemory(Vec<u8>),
+    OnDisk(PathBuf),
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct FilePart {
+    pub filename: String,
+    pub headers: HashMap<String, String>,
+    pub data: FileData,
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct HttpRequestInfo {
     pub path: String,
     pub method: String,
+    pub headers: HashMap<String, String>,
     pub form_data: serde_json::Map<String, serde_json::Value>,
+    pub files: HashMap<String, FilePart>,
     pub query_params: HashMap<String, String>,
     pub path_params: HashMap<String, String>,
 }

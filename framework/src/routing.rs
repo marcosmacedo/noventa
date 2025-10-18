@@ -1,8 +1,10 @@
-use crate::actors::page_renderer::{HttpRequestInfo, PageRendererActor, RenderMessage};
+use crate::actors::page_renderer::{FileData, FilePart, HttpRequestInfo, PageRendererActor, RenderMessage};
 use actix::Addr;
+use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use walkdir::WalkDir;
@@ -100,19 +102,62 @@ pub async fn handle_page(
     template_path: String,
 ) -> impl Responder {
     let mut form_data = serde_json::Map::new();
+    let mut files = HashMap::new();
 
     if req.method() == actix_web::http::Method::POST {
-        let mut body = web::BytesMut::new();
-        while let Some(chunk) = payload.next().await {
-            let chunk = chunk.unwrap();
-            body.extend_from_slice(&chunk);
-        }
-        if let Ok(parsed) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
-            for (key, value) in parsed {
-                form_data.insert(key, serde_json::Value::String(value));
+        let content_type = req.headers().get("content-type").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
+        if content_type.starts_with("multipart/form-data") {
+            let mut multipart = Multipart::new(req.headers(), payload);
+            while let Some(item) = multipart.next().await {
+                let mut field = item.unwrap();
+                let content_disposition = field.content_disposition().unwrap();
+                let field_name = content_disposition.get_name().unwrap().to_string();
+
+                if let Some(filename) = content_disposition.get_filename() {
+                    let filename = filename.to_string();
+                    let mut buffer = Vec::new();
+                    while let Some(chunk) = field.next().await {
+                        buffer.extend_from_slice(&chunk.unwrap());
+                    }
+                    // Simple in-memory implementation for now
+                    files.insert(
+                        field_name,
+                        FilePart {
+                            filename,
+                            headers: HashMap::new(), // TODO: Populate headers
+                            data: FileData::InMemory(buffer),
+                        },
+                    );
+                } else {
+                    let mut buffer = Vec::new();
+                    while let Some(chunk) = field.next().await {
+                        buffer.extend_from_slice(&chunk.unwrap());
+                    }
+                    form_data.insert(
+                        field_name,
+                        serde_json::Value::String(String::from_utf8(buffer).unwrap()),
+                    );
+                }
+            }
+        } else {
+            let mut body = web::BytesMut::new();
+            while let Some(chunk) = payload.next().await {
+                let chunk = chunk.unwrap();
+                body.extend_from_slice(&chunk);
+            }
+            if let Ok(parsed) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
+                for (key, value) in parsed {
+                    form_data.insert(key, serde_json::Value::String(value));
+                }
             }
         }
     }
+
+    let headers = req
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_str().unwrap().to_string()))
+        .collect();
 
     let query_params: HashMap<String, String> =
         serde_urlencoded::from_str(req.query_string()).unwrap_or_default();
@@ -125,7 +170,9 @@ pub async fn handle_page(
     let request_info = HttpRequestInfo {
         path: req.path().to_string(),
         method: req.method().to_string(),
+        headers,
         form_data,
+        files,
         query_params,
         path_params,
     };

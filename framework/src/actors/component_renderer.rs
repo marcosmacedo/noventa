@@ -1,7 +1,6 @@
 use crate::actors::interpreter::{ExecutePythonFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use actix::prelude::*;
-use serde::Deserialize;
 use std::sync::Arc;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -38,16 +37,14 @@ impl Handler<HandleRender> for ComponentRendererActor {
 
         Box::pin(async move {
             let req = msg.req;
-            let req_str = serde_json::to_string(&*req).unwrap();
-
             let mut args = HashMap::new();
-            args.insert("request".to_string(), req_str);
 
             let execute_fn_msg = if req.method == "GET" {
                 ExecutePythonFunction {
                     component_name,
                     function_name: "load_template_context".to_string(),
-                    args: Some(args),
+                    request: req,
+                    args: None,
                 }
             } else {
                 let form_data: HashMap<String, String> =
@@ -66,6 +63,7 @@ impl Handler<HandleRender> for ComponentRendererActor {
                 ExecutePythonFunction {
                     component_name,
                     function_name: format!("action_{}", action),
+                    request: req,
                     args: Some(args),
                 }
             };
