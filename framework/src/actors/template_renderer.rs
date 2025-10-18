@@ -1,5 +1,5 @@
 use crate::actors::component_renderer::{ComponentRendererActor, HandleRender};
-use crate::actors::interpreter::PythonInterpreterActor;
+use crate::actors::page_renderer::HttpRequestInfo;
 use actix::prelude::*;
 use minijinja::{Environment, Error, State};
 use serde::Serialize;
@@ -8,6 +8,7 @@ use std::sync::Arc;
 // Actor for rendering templates
 pub struct TemplateRendererActor {
     env: Arc<Environment<'static>>,
+    component_renderer: Addr<ComponentRendererActor>,
 }
 
 
@@ -43,15 +44,41 @@ impl TemplateRendererActor {
             env.add_template_owned(name, template).unwrap();
         }
 
+        Self {
+            env: Arc::new(env),
+            component_renderer,
+        }
+    }
+}
+
+impl Actor for TemplateRendererActor {
+    type Context = SyncContext<Self>;
+}
+
+// Message for rendering a template
+#[derive(Message)]
+#[rtype(result = "Result<String, Error>")]
+pub struct RenderTemplate {
+    pub template_name: String,
+    pub request_info: Arc<HttpRequestInfo>,
+}
+
+impl Handler<RenderTemplate> for TemplateRendererActor {
+    type Result = Result<String, Error>;
+
+    fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
+        let mut env = (*self.env).clone();
+        let component_renderer_clone = self.component_renderer.clone();
+        let request_info_clone = msg.request_info.clone();
+
         env.add_function(
             "component",
             move |state: &State, name: String| -> Result<minijinja::Value, Error> {
-                let request = state.lookup("request").unwrap();
-                let component_renderer_clone = component_renderer.clone();
-
+                let component_renderer_clone = component_renderer_clone.clone();
+                let request_info_clone = request_info_clone.clone();
                 let handle_render_msg = HandleRender {
                     name: name.clone(),
-                    req: request.clone(),
+                    req: request_info_clone,
                 };
 
                 let fut = async move {
@@ -79,35 +106,12 @@ impl TemplateRendererActor {
                     }
                 };
 
-                // This is now safe because we are in a SyncContext
                 actix::System::new().block_on(fut)
             },
         );
 
-        Self {
-            env: Arc::new(env),
-        }
-    }
-}
-
-impl Actor for TemplateRendererActor {
-    type Context = SyncContext<Self>;
-}
-
-// Message for rendering a template
-#[derive(Message, Serialize)]
-#[rtype(result = "Result<String, Error>")]
-pub struct RenderTemplate {
-    pub template_name: String,
-    pub context: serde_json::Value,
-}
-
-impl Handler<RenderTemplate> for TemplateRendererActor {
-    type Result = Result<String, Error>;
-
-    fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
-        let tmpl = self.env.get_template(&msg.template_name)?;
-        let result = tmpl.render(&msg.context);
+        let tmpl = env.get_template(&msg.template_name)?;
+        let result = tmpl.render(minijinja::context! {});
 
         if let Err(e) = &result {
             log::error!("Error rendering template: {}", e);

@@ -5,7 +5,6 @@ use walkdir::WalkDir;
 #[derive(Clone)]
 pub struct Component {
     pub id: String,
-    pub template_path: String,
     pub code_path: Option<String>,
 }
 
@@ -45,10 +44,9 @@ pub fn scan_components(dir: &Path) -> std::io::Result<Vec<Component>> {
                 continue;
             }
 
-            if let Some(template_path) = html_files.into_iter().next() {
+            if html_files.into_iter().next().is_some() {
                 let component = Component {
                     id: component_name.clone(),
-                    template_path: template_path.to_string_lossy().into_owned(),
                     code_path: py_files.into_iter().next().map(|p| p.to_string_lossy().into_owned()),
                 };
                 components.push(component);

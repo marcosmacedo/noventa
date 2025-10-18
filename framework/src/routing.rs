@@ -4,6 +4,7 @@ use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use walkdir::WalkDir;
 
 pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
@@ -131,7 +132,7 @@ pub async fn handle_page(
 
     let render_msg = RenderMessage {
         template_path,
-        request_info,
+        request_info: Arc::new(request_info),
     };
 
     match renderer.send(render_msg).await {
