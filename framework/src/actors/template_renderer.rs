@@ -2,7 +2,6 @@ use crate::actors::component_renderer::{ComponentRendererActor, HandleRender};
 use crate::actors::page_renderer::HttpRequestInfo;
 use actix::prelude::*;
 use minijinja::{Environment, Error, State};
-use serde::Serialize;
 use std::sync::Arc;
 
 // Actor for rendering templates

@@ -4,6 +4,7 @@ use std::path::Path;
 
 mod actors;
 mod components;
+mod dto;
 mod routing;
 
 use actors::interpreter::PythonInterpreterActor;

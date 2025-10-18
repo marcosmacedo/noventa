@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 actix = "0.13.5"
+actix-multipart = "0.7.0"
 actix-web = "4.11.0"
 pyo3 = { version = "0.26.0", features = ["auto-initialize", "multiple-pymethods"] }
 log = "0.4"

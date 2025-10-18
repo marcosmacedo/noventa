@@ -1,11 +1,14 @@
+use crate::actors::page_renderer::HttpRequestInfo;
 use crate::components::Component;
+use crate::dto::python_request::PyRequest;
 use actix::prelude::*;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyModule};
+use pyo3::types::{PyDict, PyModule, PyTuple};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind};
+use std::sync::Arc;
 
 // Define the message for rendering a component
 #[derive(Message, Clone)]
@@ -13,6 +16,7 @@ use std::io::{Error, ErrorKind};
 pub struct ExecutePythonFunction {
     pub component_name: String,
     pub function_name: String,
+    pub request: Arc<HttpRequestInfo>,
     pub args: Option<HashMap<String, String>>,
 }
 
@@ -99,14 +103,17 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
             let func = module.getattr(py, msg.function_name)
                 .map_err(|e| pyerr_to_io_error(e, py))?;
 
+            let py_request = Py::new(py, PyRequest { inner: msg.request }).unwrap();
             let result = if let Some(args) = msg.args {
                 let py_args = PyDict::new(py);
                 for (key, value) in args {
                     py_args.set_item(key, value).map_err(|e| pyerr_to_io_error(e, py))?;
                 }
-                func.call(py, (), Some(&py_args))
+                let args = (py_request,);
+                func.call1(py, args)
             } else {
-                func.call0(py)
+                let args = (py_request,);
+                func.call1(py, args)
             };
 
             let result = result.map_err(|e| pyerr_to_io_error(e, py))?;
