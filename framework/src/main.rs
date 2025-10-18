@@ -6,10 +6,10 @@ mod actors;
 mod components;
 mod routing;
 
-use actors::interpreter::{LoadComponents, PythonInterpreterActor};
-use actors::manager::InterpreterManager;
-use actors::orchestrator::HttpOrchestratorActor;
-use actors::renderer::RendererActor;
+use actors::interpreter::PythonInterpreterActor;
+use actors::page_renderer::PageRendererActor;
+use actors::template_renderer::TemplateRendererActor;
+use actors::component_renderer::ComponentRendererActor;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -24,51 +24,43 @@ async fn main() -> std::io::Result<()> {
     let components = components::scan_components(components_dir)?;
     log::info!("Found {} components.", components.len());
 
-    // Create a pool of arbiters, each with its own Python interpreter actor
-    let num_threads = 4; // Or dynamically get num_cpus
-    let mut recipients = Vec::new();
-    for _ in 0..num_threads {
-        let arbiter = Arbiter::new();
-        let addr = PythonInterpreterActor::start_in_arbiter(&arbiter.handle(), |_| {
-            PythonInterpreterActor::new()
-        });
-        addr.do_send(LoadComponents {
-            components: components.clone(),
-        });
-        recipients.push(addr.recipient());
-    }
-
-    // Start the interpreter manager actor
-    let manager = InterpreterManager::new(recipients).start();
-
-    // Start the renderer actor
-    let renderer = RendererActor::new().start();
-
-    // Start the orchestrator actor
-    let orchestrator = HttpOrchestratorActor::new(manager.clone(), renderer).start();
-
-    let components_data = web::Data::new(components);
-    let orchestrator_data = web::Data::new(orchestrator);
-
-    // Start the HTTP server
+    // Build the routes from the pages directory
     let routes = routing::get_routes(pages_dir);
+
+    // Create a pool of arbiters, each with its own Python interpreter actor
+    let num_threads = 4; // Or use num_cpus::get()
+    let components_clone = components.clone();
+    let interpreters_addr = SyncArbiter::start(num_threads, move || PythonInterpreterActor::new(components_clone.clone()));
+
+    // Start the component renderer actor
+    let component_renderer_addr = ComponentRendererActor::new(interpreters_addr.clone()).start();
+
+    // Start the template renderer actor in a SyncArbiter
+    let template_renderer_addr = SyncArbiter::start(num_threads, move || TemplateRendererActor::new(component_renderer_addr.clone()));
+
+    let renderer_addr = PageRendererActor::new(template_renderer_addr.clone()).start();
+
+
+    let renderer_data = web::Data::new(renderer_addr);
+
+
     HttpServer::new(move || {
         let mut app = App::new()
-            .app_data(components_data.clone())
-            .app_data(orchestrator_data.clone());
+            .app_data(renderer_data.clone());
 
         for (route, template_path) in &routes {
+            let renderer_data_clone = renderer_data.clone();
             app = app.route(
                 route,
-                web::get().to({
-                    let template_name = template_path
+                web::route().to({
+                    let template_path = template_path
                         .file_name()
                         .unwrap()
                         .to_str()
                         .unwrap()
                         .to_string();
-                    move |req, components, orchestrator| {
-                        routing::handle_page(req, components, orchestrator, template_name.clone())
+                    move |req, payload| {
+                        routing::handle_page(req, payload, renderer_data_clone.clone(), template_path.clone())
                     }
                 }),
             );

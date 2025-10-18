@@ -7,65 +7,72 @@ use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind};
 
+// Define the message for rendering a component
 #[derive(Message, Clone)]
-#[rtype(result = "()")]
-pub struct LoadComponents {
-    pub components: HashMap<String, Component>,
+#[rtype(result = "Result<HashMap<String, Value>, Error>")]
+pub struct ExecutePythonFunction {
+    pub component_name: String,
+    pub function_name: String,
+    pub args: Option<HashMap<String, String>>,
 }
 
-// Define the message for rendering a component
-#[derive(Message)]
-#[rtype(result = "Result<HashMap<String, Value>, Error>")]
-pub struct RenderComponent {
-    pub name: String,
-}
+use uuid::Uuid;
 
 // Define the Python interpreter actor
 pub struct PythonInterpreterActor {
+    id: Uuid,
     modules: HashMap<String, Py<PyModule>>,
+    components: Vec<Component>,
 }
 
 impl PythonInterpreterActor {
-    pub fn new() -> Self {
+    pub fn new(components: Vec<Component>) -> Self {
         Self {
+            id: Uuid::new_v4(),
             modules: HashMap::new(),
+            components,
         }
     }
 }
 
 impl Actor for PythonInterpreterActor {
-    type Context = Context<Self>;
-}
+    type Context = SyncContext<Self>;
 
-impl Handler<LoadComponents> for PythonInterpreterActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: LoadComponents, _ctx: &mut Self::Context) -> Self::Result {
+    fn started(&mut self, _ctx: &mut Self::Context) {
         Python::attach(|py| {
-            for (name, component) in msg.components {
-                let py_path = std::path::Path::new(&component.template_path).with_extension("py");
-                if !py_path.exists() {
-                    continue;
-                }
-                let py_path_str = py_path.to_str().unwrap();
+            for component in &self.components {
+                if let Some(code_path) = &component.code_path {
+                    let py_path = std::path::Path::new(code_path);
 
-                let code_string = match std::fs::read_to_string(&py_path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        log::error!("Failed to read component file {}: {}", py_path_str, e);
+                    if !py_path.exists() {
+                        log::error!(
+                            "Component code file does not exist: {}",
+                            py_path.to_string_lossy()
+                        );
                         continue;
                     }
-                };
-                let code_cstr = CString::new(code_string.as_str()).unwrap();
-                let path_cstr = CString::new(py_path_str).unwrap();
-                let name_cstr = CString::new(name.as_str()).unwrap();
 
-                match PyModule::from_code(py, &code_cstr, &path_cstr, &name_cstr) {
-                    Ok(module) => {
-                        self.modules.insert(name, module.into());
-                    }
-                    Err(e) => {
-                        log::error!("Failed to load component {}: {}", name, e);
+                    let py_path_str = py_path.to_str().unwrap();
+
+                    let code_string = match std::fs::read_to_string(&py_path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            log::error!("Failed to read component file {}: {}", py_path_str, e);
+                            continue;
+                        }
+                    };
+
+                    let code_cstr = CString::new(code_string.as_str()).unwrap();
+                    let path_cstr = CString::new(py_path_str).unwrap();
+                    let name_cstr = CString::new(component.id.as_str()).unwrap();
+
+                    match PyModule::from_code(py, &code_cstr, &path_cstr, &name_cstr) {
+                        Ok(module) => {
+                            self.modules.insert(component.id.clone(), module.into());
+                        }
+                        Err(e) => {
+                            log::error!("Failed to load component {}: {}", component.id, e);
+                        }
                     }
                 }
             }
@@ -73,22 +80,36 @@ impl Handler<LoadComponents> for PythonInterpreterActor {
     }
 }
 
-// Define the handler for the RenderComponent message
-impl Handler<RenderComponent> for PythonInterpreterActor {
+// Define the handler for the ExecutePythonFunction message
+impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
     type Result = Result<HashMap<String, Value>, Error>;
 
-    fn handle(&mut self, msg: RenderComponent, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ExecutePythonFunction, _ctx: &mut Self::Context) -> Self::Result {
+        log::info!(
+            "Interpreter {} received request for component '{}'",
+            self.id,
+            msg.component_name
+        );
         Python::attach(|py| {
             let module = self
                 .modules
-                .get(&msg.name)
+                .get(&msg.component_name)
                 .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found"))?;
 
-            let render_fn = module.getattr(py, "render")
+            let func = module.getattr(py, msg.function_name)
                 .map_err(|e| pyerr_to_io_error(e, py))?;
 
-            let result = render_fn.call0(py)
-                .map_err(|e| pyerr_to_io_error(e, py))?;
+            let result = if let Some(args) = msg.args {
+                let py_args = PyDict::new(py);
+                for (key, value) in args {
+                    py_args.set_item(key, value).map_err(|e| pyerr_to_io_error(e, py))?;
+                }
+                func.call(py, (), Some(&py_args))
+            } else {
+                func.call0(py)
+            };
+
+            let result = result.map_err(|e| pyerr_to_io_error(e, py))?;
 
             let dict = result
                 .bind(py)
@@ -96,6 +117,7 @@ impl Handler<RenderComponent> for PythonInterpreterActor {
                 .map_err(|e| pyerr_to_io_error(e.into(), py))?;
 
             let mut context: HashMap<String, Value> = HashMap::new();
+            
             for (key, value) in dict {
                 let key: String = key.extract().map_err(|e| pyerr_to_io_error(e, py))?;
                 let py_string = value.str().map_err(|e| pyerr_to_io_error(e, py))?;

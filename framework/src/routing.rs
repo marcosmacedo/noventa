@@ -1,23 +1,22 @@
-use crate::actors::orchestrator::{HandleRequest, HttpOrchestratorActor};
-use crate::components::Component;
+use crate::actors::page_renderer::{HttpRequestInfo, PageRendererActor, RenderMessage};
 use actix::Addr;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
+use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
-    let mut routes = Vec::new();
-    for entry in WalkDir::new(pages_dir)
+    let mut routes: Vec<(String, PathBuf)> = WalkDir::new(pages_dir)
         .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("html") {
-            let route = path_to_route(path, pages_dir);
-            routes.push((route, path.to_path_buf()));
-        }
-    }
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("html"))
+        .map(|e| {
+            let path = e.path().to_path_buf();
+            let route = path_to_route(&path, pages_dir);
+            (route, path)
+        })
+        .collect();
 
     // Sort routes to handle conflicts (more specific routes first)
     routes.sort_by(|(a, _), (b, _)| {
@@ -35,16 +34,20 @@ pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
 
     for (route, template_path) in routes {
         let route_key = route.split('{').next().unwrap_or("").to_string();
-        if registered_routes.contains_key(&route_key) {
-            let is_dynamic = route.contains('{');
-            let existing_is_dynamic = registered_routes[&route_key];
-            if is_dynamic != existing_is_dynamic {
-                log::error!("Route conflict detected: {}", route);
-                continue;
+        let is_dynamic = route.contains('{');
+
+        match registered_routes.entry(route_key) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                if *entry.get() != is_dynamic {
+                    log::error!("Route conflict detected: {}", route);
+                    continue;
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(is_dynamic);
             }
         }
 
-        registered_routes.insert(route_key, route.contains('{'));
         log::info!("Registering route: {} -> {:?}", route, template_path);
         final_routes.push((route, template_path));
     }
@@ -53,48 +56,93 @@ pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
 }
 
 fn path_to_route(path: &Path, base_dir: &Path) -> String {
-    let relative_path = path.strip_prefix(base_dir).unwrap();
-    let mut route = String::from("/");
-    for component in relative_path.components() {
-        let segment = component.as_os_str().to_str().unwrap();
-        if segment.ends_with(".html") {
-            let stem = &segment[..segment.len() - 5];
-            if stem != "index" {
-                route.push_str(stem);
-            }
-        } else {
-            route.push_str(segment);
-            route.push('/');
-        }
-    }
+    let relative_path = match path.strip_prefix(base_dir) {
+        Ok(p) => p,
+        Err(_) => return String::new(),
+    };
 
-    route = route
-        .replace("[", "{")
-        .replace("]", "}");
+    let route_parts: Vec<String> = relative_path
+        .components()
+        .map(|comp| comp.as_os_str().to_string_lossy().into_owned())
+        .filter_map(|segment| {
+            if segment.ends_with(".html") {
+                let stem = segment.strip_suffix(".html").unwrap();
+                if stem != "index" {
+                    Some(stem.to_string())
+                } else {
+                    None
+                }
+            } else {
+                Some(segment)
+            }
+        })
+        .collect();
+
+    let mut route = format!("/{}", route_parts.join("/"));
+    route = route.replace('[', "{").replace(']', "}");
 
     if route.len() > 1 && route.ends_with('/') {
         route.pop();
     }
 
-    route
+    if route.is_empty() {
+        "/".to_string()
+    } else {
+        route
+    }
 }
 
 pub async fn handle_page(
-    _req: HttpRequest,
-    components: web::Data<HashMap<String, Component>>,
-    orchestrator: web::Data<Addr<HttpOrchestratorActor>>,
-    template_name: String,
+    req: HttpRequest,
+    mut payload: web::Payload,
+    renderer: web::Data<Addr<PageRendererActor>>,
+    template_path: String,
 ) -> impl Responder {
-    let component = components.get("hello").unwrap();
-    let res = orchestrator
-        .send(HandleRequest {
-            component_name: component.id.clone(),
-            template_name,
-        })
-        .await;
+    let mut form_data = serde_json::Map::new();
 
-    match res {
-        Ok(Ok(rendered_page)) => HttpResponse::Ok().body(rendered_page),
-        _ => HttpResponse::InternalServerError().finish(),
+    if req.method() == actix_web::http::Method::POST {
+        let mut body = web::BytesMut::new();
+        while let Some(chunk) = payload.next().await {
+            let chunk = chunk.unwrap();
+            body.extend_from_slice(&chunk);
+        }
+        if let Ok(parsed) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
+            for (key, value) in parsed {
+                form_data.insert(key, serde_json::Value::String(value));
+            }
+        }
+    }
+
+    let query_params: HashMap<String, String> =
+        serde_urlencoded::from_str(req.query_string()).unwrap_or_default();
+    let path_params: HashMap<String, String> = req
+        .match_info()
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+    let request_info = HttpRequestInfo {
+        path: req.path().to_string(),
+        method: req.method().to_string(),
+        form_data,
+        query_params,
+        path_params,
+    };
+
+    let render_msg = RenderMessage {
+        template_path,
+        request_info,
+    };
+
+    match renderer.send(render_msg).await {
+        Ok(Ok(rendered)) => HttpResponse::Ok().body(rendered),
+        Ok(Err(e)) => {
+            log::error!("Error rendering page: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+        Err(e) => {
+            log::error!("Mailbox error: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
     }
 }
