@@ -1,4 +1,4 @@
-use crate::actors::page_renderer::{FileData, FilePart, HttpRequestInfo};
+use crate::actors::page_renderer::{FileData, HttpRequestInfo};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::io::Write;
@@ -9,6 +9,8 @@ pub struct PyFileStorage {
     #[pyo3(get, set)]
     filename: String,
     #[pyo3(get, set)]
+    content_type: String,
+    #[pyo3(get, set)]
     headers: Py<PyDict>,
     data: Arc<FileData>,
 }
@@ -16,9 +18,10 @@ pub struct PyFileStorage {
 #[pymethods]
 impl PyFileStorage {
     #[new]
-    fn new(filename: String, headers: Py<PyDict>) -> Self {
+    fn new(filename: String, content_type: String, headers: Py<PyDict>) -> Self {
         PyFileStorage {
             filename,
+            content_type,
             headers,
             data: Arc::new(FileData::InMemory(Vec::new())),
         }
@@ -41,6 +44,21 @@ impl PyFileStorage {
         match &*self.data {
             FileData::InMemory(bytes) => Ok(bytes.clone()),
             FileData::OnDisk(path) => Ok(std::fs::read(path)?),
+        }
+    }
+
+    fn stream<'a>(&self, py: Python<'a>) -> PyResult<Py<pyo3::types::PyBytes>> {
+        let bytes = self.read()?;
+        Ok(pyo3::types::PyBytes::new(py, &bytes).into())
+    }
+}
+
+impl Drop for PyFileStorage {
+    fn drop(&mut self) {
+        if let FileData::OnDisk(path) = &*self.data {
+            if let Err(e) = std::fs::remove_file(path) {
+                log::error!("Failed to delete temporary file: {}", e);
+            }
         }
     }
 }
@@ -108,6 +126,7 @@ impl PyRequest {
                 py,
                 PyFileStorage {
                     filename: value.filename.clone(),
+                    content_type: value.content_type.clone(),
                     headers: headers_dict.into(),
                     data: Arc::new(value.data.clone()),
                 },

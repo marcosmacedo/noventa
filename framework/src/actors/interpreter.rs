@@ -3,8 +3,9 @@ use crate::components::Component;
 use crate::dto::python_request::PyRequest;
 use actix::prelude::*;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyModule, PyTuple};
-use serde_json::Value;
+use minijinja::Value;
+use pyo3::types::{PyDict, PyModule};
+use serde_json;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::{Error, ErrorKind};
@@ -12,7 +13,7 @@ use std::sync::Arc;
 
 // Define the message for rendering a component
 #[derive(Message, Clone)]
-#[rtype(result = "Result<HashMap<String, Value>, Error>")]
+#[rtype(result = "Result<Value, Error>")]
 pub struct ExecutePythonFunction {
     pub component_name: String,
     pub function_name: String,
@@ -86,7 +87,7 @@ impl Actor for PythonInterpreterActor {
 
 // Define the handler for the ExecutePythonFunction message
 impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
-    type Result = Result<HashMap<String, Value>, Error>;
+    type Result = Result<Value, Error>;
 
     fn handle(&mut self, msg: ExecutePythonFunction, _ctx: &mut Self::Context) -> Self::Result {
         log::info!(
@@ -100,14 +101,17 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
                 .get(&msg.component_name)
                 .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found"))?;
 
-            let func = module.getattr(py, msg.function_name)
+            let func = module
+                .getattr(py, msg.function_name)
                 .map_err(|e| pyerr_to_io_error(e, py))?;
 
             let py_request = Py::new(py, PyRequest { inner: msg.request }).unwrap();
             let result = if let Some(args) = msg.args {
                 let py_args = PyDict::new(py);
                 for (key, value) in args {
-                    py_args.set_item(key, value).map_err(|e| pyerr_to_io_error(e, py))?;
+                    py_args
+                        .set_item(key, value)
+                        .map_err(|e| pyerr_to_io_error(e, py))?;
                 }
                 let args = (py_request,);
                 func.call1(py, args)
@@ -118,24 +122,12 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
 
             let result = result.map_err(|e| pyerr_to_io_error(e, py))?;
 
-            let dict = result
-                .bind(py)
-                .downcast::<PyDict>()
-                .map_err(|e| pyerr_to_io_error(e.into(), py))?;
+            let py_any = result.bind(py);
+            let serde_value: serde_json::Value = pythonize::depythonize(py_any)
+                .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+            let value = Value::from_serialize(&serde_value);
 
-            let mut context: HashMap<String, Value> = HashMap::new();
-            
-            for (key, value) in dict {
-                let key: String = key.extract().map_err(|e| pyerr_to_io_error(e, py))?;
-                let py_string = value.str().map_err(|e| pyerr_to_io_error(e, py))?;
-                let value_str: &str = py_string
-                    .to_str()
-                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-                let value: Value = serde_json::from_str(value_str)
-                    .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-                context.insert(key, value);
-            }
-            Ok(context)
+            Ok(value)
         })
     }
 }

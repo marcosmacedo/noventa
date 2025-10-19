@@ -1,5 +1,10 @@
 <div>
     <h1>Counter: {{ count }}</h1>
+    <ul>
+        {% for item in items %}
+            <li>{{ item }}</li>
+        {% endfor %}
+    </ul>
     <form method="post">
         <input type="hidden" name="action" value="increment">
         <button type="submit">Increment</button>
