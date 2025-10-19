@@ -141,15 +141,17 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
 
         let tmpl = env.get_template(&msg.template_name)?;
         let start_time = std::time::Instant::now();
-        let result = tmpl.render(minijinja::context! {});
+        let mut result = tmpl.render(minijinja::context! {})?;
         let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
         self.health_actor
             .do_send(ReportTemplateLatency(duration_ms));
 
-        if let Err(e) = &result {
-            log::error!("Error rendering template: {}", e);
+        const SCRIPT_CONTENT: &str = include_str!("../injection.js");
+        if let Some(body_end_pos) = result.rfind("</body>") {
+            let script_tag = format!("<script>{}</script>\n", SCRIPT_CONTENT);
+            result.insert_str(body_end_pos, &script_tag);
         }
 
-        result
+        Ok(result)
     }
 }

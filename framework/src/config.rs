@@ -8,6 +8,8 @@ pub struct Config {
     pub temp_dir: Option<String>,
     pub adaptive_shedding: Option<bool>,
     pub database: Option<String>,
+    pub static_path: Option<String>,
+    pub static_url_prefix: Option<String>,
 }
 
 impl Config {

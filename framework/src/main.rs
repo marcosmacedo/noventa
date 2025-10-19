@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use actix_web::{web, App, HttpServer};
+use actix_files::Files;
 use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
 use std::process::Command;
@@ -181,8 +182,15 @@ async fn run_dev_server() -> std::io::Result<()> {
         let mut app = App::new()
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
-            .route("/health", web::get().to(routing::health_check))
-            ;
+            .route("/health", web::get().to(routing::health_check));
+
+        if let Some(static_path) = &config::CONFIG.static_path {
+            let url_prefix = config::CONFIG
+                .static_url_prefix
+                .as_deref()
+                .unwrap_or("/static");
+            app = app.service(Files::new(url_prefix, static_path).show_files_listing());
+        }
 
         for (route, template_path) in &routes {
             let renderer_data_clone = renderer_data.clone();

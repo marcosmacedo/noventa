@@ -263,3 +263,36 @@ my-app/
     cargo run -- new your-project-name
     ```
 3.  **Start developing**: A new directory `your-project-name` will be created. You can now `cd` into it and start the development server.
+
+
+## Configurable Static File Serving
+
+The framework supports serving static files (e.g., CSS, JavaScript, images) from a configurable directory and URL. This feature is optional and can be enabled via `config.yaml`.
+
+### How It Works
+
+- **`actix-files`**: This crate provides a service for serving files from a specified directory.
+- **Configuration**: The static file serving is controlled by two keys in `web/config.yaml`:
+  - **`static_path`**: The path to the directory containing your static files. This can be a relative path (from the project root) or an absolute path. If this key is not present, static file serving is disabled.
+  - **`static_url_prefix`**: The URL prefix where the static files will be served. If this key is not present, it defaults to `/static`.
+- **File Listing**: For development purposes, directory listing is enabled, so you can navigate to the configured URL prefix in your browser to see a list of all available files.
+
+### How to Use
+
+1.  **Enable in `config.yaml`**: To enable static file serving, add or uncomment the `static_path` and optionally the `static_url_prefix` in `web/config.yaml`:
+    ```yaml
+    # Path to the static files directory. Can be relative or absolute.
+    static_path: "files"
+
+    # The URL prefix for static files. Defaults to "/static" if not specified.
+    static_url_prefix: "/files"
+    ```
+2.  **Place your static files**: Create the directory specified in `static_path` (e.g., `web/files`) and place your assets inside it.
+3.  **Link to them in your templates**: In your HTML templates, you can now link to these files using the configured `static_url_prefix`.
+
+    **Example**:
+    ```html
+    <link rel="stylesheet" href="/files/style.css">
+    <script src="/files/main.js"></script>
+    <img src="/files/logo.png" alt="Logo">
+    ```
