@@ -21,7 +21,7 @@ impl TemplateRendererActor {
         let mut env = Environment::new();
 
         // Add page templates
-        let pages_dir = std::path::Path::new("../web/pages");
+        let pages_dir = std::path::Path::new("./pages");
         for entry in walkdir::WalkDir::new(pages_dir)
             .into_iter()
             .filter_map(Result::ok)
@@ -34,7 +34,7 @@ impl TemplateRendererActor {
         }
 
         // Add component templates
-        let components_dir = std::path::Path::new("../web/components");
+        let components_dir = std::path::Path::new("./components");
         for entry in walkdir::WalkDir::new(components_dir)
             .into_iter()
             .filter_map(Result::ok)
@@ -47,7 +47,7 @@ impl TemplateRendererActor {
         }
 
         // Add component templates
-        let layouts_dir = std::path::Path::new("../web/layouts");
+        let layouts_dir = std::path::Path::new("./layouts");
         for entry in walkdir::WalkDir::new(layouts_dir)
             .into_iter()
             .filter_map(Result::ok)
