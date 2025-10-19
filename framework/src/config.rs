@@ -7,6 +7,7 @@ pub struct Config {
     pub max_memory_size: Option<usize>,
     pub temp_dir: Option<String>,
     pub adaptive_shedding: Option<bool>,
+    pub database: Option<String>,
 }
 
 impl Config {

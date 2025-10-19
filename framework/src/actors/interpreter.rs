@@ -1,14 +1,15 @@
 use crate::actors::page_renderer::HttpRequestInfo;
 use crate::components::Component;
+use crate::config::CONFIG;
 use crate::dto::python_request::PyRequest;
 use actix::prelude::*;
-use pyo3::prelude::*;
 use minijinja::Value;
+use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
 use serde_json;
 use std::collections::HashMap;
-use std::ffi::CString;
 use std::io::{Error, ErrorKind};
+use std::path::Path;
 use std::sync::Arc;
 
 // Define the message for rendering a component
@@ -18,7 +19,7 @@ pub struct ExecutePythonFunction {
     pub component_name: String,
     pub function_name: String,
     pub request: Arc<HttpRequestInfo>,
-    pub args: Option<HashMap<String, String>>,
+    pub args: Option<HashMap<String, Value>>,
 }
 
 use uuid::Uuid;
@@ -28,6 +29,7 @@ pub struct PythonInterpreterActor {
     id: Uuid,
     modules: HashMap<String, Py<PyModule>>,
     components: Vec<Component>,
+    db_instance: Option<Py<PyAny>>,
 }
 
 impl PythonInterpreterActor {
@@ -36,6 +38,7 @@ impl PythonInterpreterActor {
             id: Uuid::new_v4(),
             modules: HashMap::new(),
             components,
+            db_instance: None,
         }
     }
 }
@@ -45,35 +48,46 @@ impl Actor for PythonInterpreterActor {
 
     fn started(&mut self, _ctx: &mut Self::Context) {
         Python::attach(|py| {
-            for component in &self.components {
-                if let Some(code_path) = &component.code_path {
-                    let py_path = std::path::Path::new(code_path);
-
-                    if !py_path.exists() {
-                        log::error!(
-                            "Component code file does not exist: {}",
-                            py_path.to_string_lossy()
-                        );
-                        continue;
-                    }
-
-                    let py_path_str = py_path.to_str().unwrap();
-
-                    let code_string = match std::fs::read_to_string(&py_path) {
-                        Ok(s) => s,
+            if let Some(db_url) = &CONFIG.database {
+                match py.import("db") {
+                    Ok(db_module) => match db_module.getattr("initialize_database") {
+                        Ok(init_func) => match init_func.call1((db_url,)) {
+                            Ok(db_instance) => {
+                                self.db_instance = Some(db_instance.into());
+                            }
+                            Err(e) => {
+                                log::error!("Failed to initialize database: {}", e);
+                            }
+                        },
                         Err(e) => {
-                            log::error!("Failed to read component file {}: {}", py_path_str, e);
+                            log::error!("Failed to find initialize_database function: {}", e);
+                        }
+                    },
+                    Err(e) => {
+                        log::error!("Failed to load db.py: {}", e);
+                    }
+                }
+            }
+
+            let importlib = py.import("importlib").unwrap();
+            let import_module = importlib.getattr("import_module").unwrap();
+
+            for component in &self.components {
+                if let Some(logic_path) = &component.logic_path {
+                    let module_path = match path_to_module(logic_path) {
+                        Ok(path) => path,
+                        Err(e) => {
+                            log::error!("Failed to convert path to module for {}: {}", logic_path, e);
                             continue;
                         }
                     };
 
-                    let code_cstr = CString::new(code_string.as_str()).unwrap();
-                    let path_cstr = CString::new(py_path_str).unwrap();
-                    let name_cstr = CString::new(component.id.as_str()).unwrap();
-
-                    match PyModule::from_code(py, &code_cstr, &path_cstr, &name_cstr) {
+                    match import_module.call1((module_path,)) {
                         Ok(module) => {
-                            self.modules.insert(component.id.clone(), module.into());
+                            self.modules.insert(
+                                component.id.clone(),
+                                module.downcast::<PyModule>().unwrap().clone().into(),
+                            );
                         }
                         Err(e) => {
                             log::error!("Failed to load component {}: {}", component.id, e);
@@ -106,19 +120,25 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
                 .map_err(|e| pyerr_to_io_error(e, py))?;
 
             let py_request = Py::new(py, PyRequest { inner: msg.request }).unwrap();
-            let result = if let Some(args) = msg.args {
-                let py_args = PyDict::new(py);
+            let py_args = PyDict::new(py);
+            if let Some(args) = msg.args {
                 for (key, value) in args {
+                    let py_value = pythonize::pythonize(py, &value)
+                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
                     py_args
-                        .set_item(key, value)
+                        .set_item(key, py_value)
                         .map_err(|e| pyerr_to_io_error(e, py))?;
                 }
-                let args = (py_request,);
-                func.call1(py, args)
-            } else {
-                let args = (py_request,);
-                func.call1(py, args)
-            };
+            }
+
+            if let Some(db) = &self.db_instance {
+                py_args
+                    .set_item("db", db.as_ref())
+                    .map_err(|e| pyerr_to_io_error(e, py))?;
+            }
+
+            let args = (py_request,);
+            let result = func.call(py, args, Some(&py_args));
 
             let result = result.map_err(|e| pyerr_to_io_error(e, py))?;
 
@@ -136,4 +156,19 @@ fn pyerr_to_io_error(e: PyErr, py: Python) -> Error {
     let err_string = e.to_string();
     e.print(py);
     Error::new(ErrorKind::Other, err_string)
+}
+
+fn path_to_module(path_str: &str) -> Result<String, &'static str> {
+    let _path = Path::new(path_str);
+
+    // Strip the leading "../web/" from the path
+    let cleaned_path_str = path_str.strip_prefix("../web/").unwrap_or(path_str);
+
+    // Replace directory separators with dots and remove the .py extension
+    let module_path = cleaned_path_str
+        .strip_suffix(".py")
+        .unwrap_or(cleaned_path_str)
+        .replace("/", ".");
+
+    Ok(module_path)
 }
