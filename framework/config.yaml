@@ -1,0 +1,9 @@
+# Maximum size in bytes for in-memory file uploads.
+# Files larger than this will be streamed to a temporary file on disk.
+# Default is 10 MB.
+# max_memory_size: 10485760 # 10 * 1024 * 1024
+
+# Directory for temporary file uploads.
+# If not specified, the system's temporary directory will be used.
+temp_dir: "noventa-uploads"
+adaptive_shedding: true

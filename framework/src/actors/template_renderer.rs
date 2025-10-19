@@ -1,4 +1,5 @@
 use crate::actors::component_renderer::{ComponentRendererActor, HandleRender};
+use crate::actors::health::{HealthActor, ReportTemplateLatency};
 use crate::actors::page_renderer::HttpRequestInfo;
 use actix::prelude::*;
 use minijinja::{Environment, Error, State};
@@ -8,12 +9,14 @@ use std::sync::Arc;
 pub struct TemplateRendererActor {
     env: Arc<Environment<'static>>,
     component_renderer: Addr<ComponentRendererActor>,
+    health_actor: Addr<HealthActor>,
 }
 
 
 impl TemplateRendererActor {
     pub fn new(
         component_renderer: Addr<ComponentRendererActor>,
+        health_actor: Addr<HealthActor>,
     ) -> Self {
         let mut env = Environment::new();
 
@@ -46,6 +49,7 @@ impl TemplateRendererActor {
         Self {
             env: Arc::new(env),
             component_renderer,
+            health_actor,
         }
     }
 }
@@ -68,12 +72,14 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
         let mut env = (*self.env).clone();
         let component_renderer_clone = self.component_renderer.clone();
+        let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
 
         env.add_function(
             "component",
             move |state: &State, name: String| -> Result<minijinja::Value, Error> {
                 let component_renderer_clone = component_renderer_clone.clone();
+                let health_actor_clone = health_actor_clone.clone();
                 let request_info_clone = request_info_clone.clone();
                 let handle_render_msg = HandleRender {
                     name: name.clone(),
@@ -83,10 +89,10 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 let fut = async move {
                     match component_renderer_clone.send(handle_render_msg).await {
                         Ok(Ok(context)) => {
-                            let tmpl = state.env().get_template(&name).unwrap();
-                            Ok(minijinja::Value::from_safe_string(
-                                tmpl.render(context).unwrap(),
-                            ))
+                            let start_time = std::time::Instant::now();
+                            let tmpl = state.env().get_template(&name)?;
+                            let result = tmpl.render(context)?;
+                            Ok(minijinja::Value::from_safe_string(result))
                         }
                         Ok(Err(e)) => {
                             log::error!("Error rendering component: {}", e);
@@ -105,12 +111,16 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     }
                 };
 
-                actix::System::new().block_on(fut)
+                futures::executor::block_on(fut)
             },
         );
 
         let tmpl = env.get_template(&msg.template_name)?;
+        let start_time = std::time::Instant::now();
         let result = tmpl.render(minijinja::context! {});
+        let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+        self.health_actor
+            .do_send(ReportTemplateLatency(duration_ms));
 
         if let Err(e) = &result {
             log::error!("Error rendering template: {}", e);

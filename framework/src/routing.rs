@@ -1,10 +1,10 @@
-use crate::actors::page_renderer::{FileData, FilePart, HttpRequestInfo, PageRendererActor, RenderMessage};
-use actix::Addr;
+use crate::actors::health::{GetSystemHealth, HealthActor};
+use crate::actors::page_renderer::{HttpRequestInfo, RenderMessage};
+use actix::{Addr, Recipient};
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use walkdir::WalkDir;
@@ -97,61 +97,32 @@ fn path_to_route(path: &Path, base_dir: &Path) -> String {
 
 pub async fn handle_page(
     req: HttpRequest,
-    mut payload: web::Payload,
-    renderer: web::Data<Addr<PageRendererActor>>,
+    payload: web::Payload,
+    renderer: web::Data<Recipient<RenderMessage>>,
     template_path: String,
 ) -> impl Responder {
-    let mut form_data = serde_json::Map::new();
-    let mut files = HashMap::new();
-
-    if req.method() == actix_web::http::Method::POST {
+    let (form_data, files) = if req.method() == actix_web::http::Method::POST {
         let content_type = req.headers().get("content-type").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
         if content_type.starts_with("multipart/form-data") {
-            let mut multipart = Multipart::new(req.headers(), payload);
-            while let Some(item) = multipart.next().await {
-                let mut field = item.unwrap();
-                let content_disposition = field.content_disposition().unwrap();
-                let field_name = content_disposition.get_name().unwrap().to_string();
-
-                if let Some(filename) = content_disposition.get_filename() {
-                    let filename = filename.to_string();
-                    let mut buffer = Vec::new();
-                    while let Some(chunk) = field.next().await {
-                        buffer.extend_from_slice(&chunk.unwrap());
-                    }
-                    // Simple in-memory implementation for now
-                    files.insert(
-                        field_name,
-                        FilePart {
-                            filename,
-                            headers: HashMap::new(), // TODO: Populate headers
-                            data: FileData::InMemory(buffer),
-                        },
-                    );
-                } else {
-                    let mut buffer = Vec::new();
-                    while let Some(chunk) = field.next().await {
-                        buffer.extend_from_slice(&chunk.unwrap());
-                    }
-                    form_data.insert(
-                        field_name,
-                        serde_json::Value::String(String::from_utf8(buffer).unwrap()),
-                    );
-                }
-            }
+            let multipart = Multipart::new(req.headers(), payload);
+            crate::fileupload::handle_multipart(multipart).await
         } else {
             let mut body = web::BytesMut::new();
-            while let Some(chunk) = payload.next().await {
+            let mut stream = payload;
+            while let Some(chunk) = stream.next().await {
                 let chunk = chunk.unwrap();
                 body.extend_from_slice(&chunk);
             }
-            if let Ok(parsed) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
-                for (key, value) in parsed {
-                    form_data.insert(key, serde_json::Value::String(value));
-                }
-            }
+            let form_data = if let Ok(parsed) = serde_urlencoded::from_bytes::<HashMap<String, String>>(&body) {
+                parsed.into_iter().map(|(k, v)| (k, serde_json::Value::String(v))).collect()
+            } else {
+                serde_json::Map::new()
+            };
+            (form_data, HashMap::new())
         }
-    }
+    } else {
+        (serde_json::Map::new(), HashMap::new())
+    };
 
     let headers = req
         .headers()
@@ -185,11 +156,25 @@ pub async fn handle_page(
     match renderer.send(render_msg).await {
         Ok(Ok(rendered)) => HttpResponse::Ok().body(rendered),
         Ok(Err(e)) => {
-            log::error!("Error rendering page: {}", e);
-            HttpResponse::InternalServerError().finish()
+            if e.kind() == minijinja::ErrorKind::InvalidOperation && e.to_string() == "SHEDDING" {
+                log::warn!("Shedding request due to high latency.");
+                HttpResponse::ServiceUnavailable().body("Service Unavailable: Shedding load")
+            } else {
+                log::error!("Error rendering page: {}", e);
+                HttpResponse::InternalServerError().finish()
+            }
         }
         Err(e) => {
             log::error!("Mailbox error: {}", e);
+            HttpResponse::InternalServerError().finish()
+        }
+    }
+}
+pub async fn health_check(health_actor: web::Data<Addr<HealthActor>>) -> impl Responder {
+    match health_actor.send(GetSystemHealth).await {
+        Ok(health) => HttpResponse::Ok().json(health),
+        Err(e) => {
+            log::error!("Failed to get system health: {}", e);
             HttpResponse::InternalServerError().finish()
         }
     }

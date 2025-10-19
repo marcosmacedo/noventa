@@ -1,4 +1,4 @@
 [build]
 rustflags = [
-    "-C", "link-args=-L/opt/anaconda3/envs/python314/lib -Wl,-rpath,/opt/anaconda3/envs/python314/lib"
+    "-C", "link-args=-L/opt/anaconda3/envs/nogil/lib -Wl,-rpath,/opt/anaconda3/envs/nogil/lib"
 ]
