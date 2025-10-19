@@ -2,6 +2,8 @@ use actix::prelude::*;
 use actix_web::{web, App, HttpServer};
 use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
+use std::process::Command;
+use std::env;
 use crate::actors::page_renderer::RenderMessage;
 
 mod actors;
@@ -35,6 +37,8 @@ enum Commands {
     Dev,
     /// Runs the MCP server
     Disco,
+    /// Create a new project
+    New { name: String },
 }
 
 #[actix_web::main]
@@ -44,11 +48,52 @@ async fn main() -> std::io::Result<()> {
     match cli.command {
         Some(Commands::Dev) => run_dev_server().await,
         Some(Commands::Disco) => disco::server::run_disco_server().await,
+        Some(Commands::New { name }) => create_new_project(&name),
         None => {
             // Default to dev server
             run_dev_server().await
         }
     }
+}
+
+fn create_new_project(name: &str) -> std::io::Result<()> {
+    // Get the path to the currently running executable
+    let mut exe_path = env::current_exe()?;
+    // Navigate up to the project root (assuming the executable is in `noventa/framework/target/debug/noventa`)
+    exe_path.pop(); // -> noventa/framework/target/debug
+    exe_path.pop(); // -> noventa/framework/target
+    exe_path.pop(); // -> noventa/framework
+    exe_path.pop(); // -> noventa/
+
+    // Now construct the path to the template
+    let template_path = exe_path.join("framework/starter");
+
+    if !template_path.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Template directory not found at: {:?}", template_path),
+        ));
+    }
+
+    let output_dir = ".";
+
+    let status = Command::new("cookiecutter")
+        .arg(template_path)
+        .arg("--output-dir")
+        .arg(output_dir)
+        .arg("--no-input")
+        .arg(format!("project_name={}", name))
+        .status()?;
+
+    if !status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Failed to execute cookiecutter command",
+        ));
+    }
+
+    println!("Successfully created project: {}", name);
+    Ok(())
 }
 
 async fn run_dev_server() -> std::io::Result<()> {
