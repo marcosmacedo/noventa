@@ -10,6 +10,7 @@ mod config;
 mod dto;
 mod fileupload;
 mod routing;
+mod disco;
 
 use actors::health::HealthActor;
 use actors::interpreter::PythonInterpreterActor;
@@ -18,11 +19,42 @@ use actors::page_renderer::PageRendererActor;
 use actors::template_renderer::TemplateRendererActor;
 use actors::component_renderer::ComponentRendererActor;
 
+use clap::Parser;
+
+#[derive(Parser)]
+#[command(name = "noventa")]
+#[command(about = "A framework for building web applications with Python and Rust.", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(clap::Subcommand)]
+enum Commands {
+    /// Runs the development web server
+    Dev,
+    /// Runs the MCP server
+    Disco,
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(Commands::Dev) => run_dev_server().await,
+        Some(Commands::Disco) => disco::server::run_disco_server().await,
+        None => {
+            // Default to dev server
+            run_dev_server().await
+        }
+    }
+}
+
+async fn run_dev_server() -> std::io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
-    pyo3::Python::with_gil(|py| {
+    pyo3::Python::attach(|py| {
         let sys = py.import("sys").unwrap();
         let path = sys.getattr("path").unwrap();
         let path_list = path.downcast::<pyo3::types::PyList>().unwrap();
@@ -35,7 +67,8 @@ async fn main() -> std::io::Result<()> {
         if path_list.append("/Users/marcos/Documents/noventa/framework").is_err() {
             log::error!("Failed to add framework to sys.path");
         }
-    });
+        Ok::<(), pyo3::PyErr>(())
+    }).unwrap();
 
     // Define the paths to the web directories
     let components_dir = Path::new("../web/components");
@@ -107,7 +140,8 @@ async fn main() -> std::io::Result<()> {
         let mut app = App::new()
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
-            .route("/health", web::get().to(routing::health_check));
+            .route("/health", web::get().to(routing::health_check))
+            ;
 
         for (route, template_path) in &routes {
             let renderer_data_clone = renderer_data.clone();
@@ -138,3 +172,4 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
+
