@@ -9,4 +9,4 @@ temp_dir: "noventa-uploads"
 adaptive_shedding: false
 
 # Database connection URL
-database: "sqlite:///../noventa.db"
+database: "sqlite:///./noventa.db"

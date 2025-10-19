@@ -58,12 +58,8 @@ async fn run_dev_server() -> std::io::Result<()> {
         let sys = py.import("sys").unwrap();
         let path = sys.getattr("path").unwrap();
         let path_list = path.downcast::<pyo3::types::PyList>().unwrap();
-        if path_list.append("../database").is_err() {
-            log::error!("Failed to add database to sys.path");
-        }
-        if path_list.append("../web").is_err() {
-            log::error!("Failed to add web to sys.path");
-        }
+
+        // FIXME: Needs to point to the installation path
         if path_list.append("/Users/marcos/Documents/noventa/framework").is_err() {
             log::error!("Failed to add framework to sys.path");
         }
@@ -71,8 +67,8 @@ async fn run_dev_server() -> std::io::Result<()> {
     }).unwrap();
 
     // Define the paths to the web directories
-    let components_dir = Path::new("../web/components");
-    let pages_dir = Path::new("../web/pages");
+    let components_dir = Path::new("./components");
+    let pages_dir = Path::new("./pages");
 
     // Scan for components
     let components = components::scan_components(components_dir)?;

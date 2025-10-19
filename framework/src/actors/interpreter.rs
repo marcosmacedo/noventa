@@ -48,6 +48,11 @@ impl Actor for PythonInterpreterActor {
 
     fn started(&mut self, _ctx: &mut Self::Context) {
         Python::attach(|py| {
+            // 1️⃣ Add the 'web' folder to sys.path
+            let sys = py.import("sys").unwrap();
+            let path = sys.getattr("path").unwrap();
+            path.call_method1("insert", (0, "../web")).unwrap();
+
             if let Some(db_url) = &CONFIG.database {
                 match py.import("db") {
                     Ok(db_module) => match db_module.getattr("initialize_database") {
@@ -69,6 +74,7 @@ impl Actor for PythonInterpreterActor {
                 }
             }
 
+            // 2️⃣ Import each component by absolute path
             let importlib = py.import("importlib").unwrap();
             let import_module = importlib.getattr("import_module").unwrap();
 
@@ -161,8 +167,8 @@ fn pyerr_to_io_error(e: PyErr, py: Python) -> Error {
 fn path_to_module(path_str: &str) -> Result<String, &'static str> {
     let _path = Path::new(path_str);
 
-    // Strip the leading "../web/" from the path
-    let cleaned_path_str = path_str.strip_prefix("../web/").unwrap_or(path_str);
+    // Strip the leading "./web/" from the path
+    let cleaned_path_str = path_str.strip_prefix("./").unwrap_or(path_str);
 
     // Replace directory separators with dots and remove the .py extension
     let module_path = cleaned_path_str
