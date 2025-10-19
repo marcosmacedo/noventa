@@ -1,0 +1,36 @@
+# tools/onboarding_guide.yaml
+
+name: "onboarding_guide"
+description: "An interactive guide to help new users get started."
+
+initial_step: "welcome"
+
+steps:
+  welcome:
+    text: "Welcome to Noventa! What would you like to do first?"
+    options:
+      - label: "Learn about the architecture."
+        next_step: "explain_architecture"
+      - label: "See a code example."
+        next_step: "show_code_example"
+      - label: "Exit the guide."
+        next_step: "[END]"
+
+  explain_architecture:
+    text: "Noventa uses a Rust backend with Python for business logic. Would you like to know more about the frontend or the backend?"
+    options:
+      - label: "Tell me about the frontend."
+        next_step: "explain_frontend"
+      - label: "Tell me about the backend."
+        next_step: "explain_backend"
+      - label: "Go back."
+        next_step: "welcome"
+
+  show_code_example:
+    text: "Here is a link to a code example: [link]. The session will now end."
+
+  explain_frontend:
+    text: "The frontend is built with standard HTML, CSS, and a bit of JavaScript."
+
+  explain_backend:
+    text: "The backend uses Actix-web in Rust and communicates with Python actors."

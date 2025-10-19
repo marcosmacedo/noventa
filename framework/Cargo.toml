@@ -23,6 +23,7 @@ serde_with = "3.8.1"
 serde_yaml = "0.9"
 lazy_static = "1.4.0"
 num_cpus = "1.17.0"
+clap = { version = "4.5.4", features = ["derive"] }
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"
