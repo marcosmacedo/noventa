@@ -2,7 +2,7 @@ use crate::actors::component_renderer::{ComponentRendererActor, HandleRender};
 use crate::actors::health::{HealthActor, ReportTemplateLatency};
 use crate::actors::page_renderer::HttpRequestInfo;
 use actix::prelude::*;
-use minijinja::{Environment, Error, State};
+use minijinja::{Environment, Error, State, value::Kwargs};
 use std::sync::Arc;
 
 // Actor for rendering templates
@@ -46,6 +46,19 @@ impl TemplateRendererActor {
             env.add_template_owned(name, template).unwrap();
         }
 
+        // Add component templates
+        let layouts_dir = std::path::Path::new("../web/layouts");
+        for entry in walkdir::WalkDir::new(layouts_dir)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("html"))
+        {
+            let path = entry.path();
+            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
+            let template = std::fs::read_to_string(path).unwrap();
+            env.add_template_owned(name, template).unwrap();
+        }
+ 
         Self {
             env: Arc::new(env),
             component_renderer,
@@ -72,24 +85,35 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
         let mut env = (*self.env).clone();
         let component_renderer_clone = self.component_renderer.clone();
-        let health_actor_clone = self.health_actor.clone();
+        let _health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
 
         env.add_function(
             "component",
-            move |state: &State, name: String| -> Result<minijinja::Value, Error> {
+            move |state: &State, name: String, kwargs: Kwargs| -> Result<minijinja::Value, Error> {
                 let component_renderer_clone = component_renderer_clone.clone();
-                let health_actor_clone = health_actor_clone.clone();
                 let request_info_clone = request_info_clone.clone();
+
+                let kwargs_map: std::collections::HashMap<String, minijinja::Value> = kwargs
+                    .args()
+                    .filter_map(|k| {
+                        kwargs
+                            .get::<minijinja::Value>(k)
+                            .ok()
+                            .map(|v| (k.to_string(), v))
+                    })
+                    .collect();
+
                 let handle_render_msg = HandleRender {
                     name: name.clone(),
                     req: request_info_clone,
+                    kwargs: Some(kwargs_map),
                 };
 
                 let fut = async move {
                     match component_renderer_clone.send(handle_render_msg).await {
                         Ok(Ok(context)) => {
-                            let start_time = std::time::Instant::now();
+                            let _start_time = std::time::Instant::now();
                             let tmpl = state.env().get_template(&name)?;
                             let result = tmpl.render(context)?;
                             Ok(minijinja::Value::from_safe_string(result))

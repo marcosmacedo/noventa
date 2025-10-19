@@ -1,0 +1,4 @@
+- Add virtual dom diff
+- Add "tasks" which can run and do stuff / send changes to connected clients
+- Persistent websocket
+- Prevent a post on /page to a component to cascade post to other childrens that are unrelated

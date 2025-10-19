@@ -33,6 +33,7 @@ impl Actor for ComponentRendererActor {
 pub struct HandleRender {
     pub name: String,
     pub req: Arc<HttpRequestInfo>,
+    pub kwargs: Option<HashMap<String, Value>>,
 }
 
 impl Handler<HandleRender> for ComponentRendererActor {
@@ -44,16 +45,16 @@ impl Handler<HandleRender> for ComponentRendererActor {
         let component_name = msg.name.clone();
 
         Box::pin(async move {
-            let actor_start_time = std::time::Instant::now();
+            let _actor_start_time = std::time::Instant::now();
             let req = msg.req;
-            let mut args = HashMap::new();
+            let mut args = msg.kwargs.unwrap_or_default();
 
             let execute_fn_msg = if req.method == "GET" {
                 ExecutePythonFunction {
                     component_name,
                     function_name: "load_template_context".to_string(),
                     request: req,
-                    args: None,
+                    args: Some(args.into_iter().map(|(k, v)| (k, v)).collect()),
                 }
             } else {
                 let form_data: HashMap<String, String> =
@@ -67,7 +68,11 @@ impl Handler<HandleRender> for ComponentRendererActor {
                     ));
                 }
 
-                args.extend(form_data);
+                let mut form_data_value = HashMap::new();
+                for (k, v) in form_data {
+                    form_data_value.insert(k.clone(), Value::from(v.clone()));
+                }
+                args.extend(form_data_value);
 
                 ExecutePythonFunction {
                     component_name,

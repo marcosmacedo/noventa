@@ -138,3 +138,93 @@ You can access these properties directly in your templates using dot notation.
   </ul>
 {% endif %}
 ```
+
+
+## Arbitrary Parameters in Components
+
+You can now pass arbitrary key-value parameters to components directly from your templates. These parameters are automatically passed to the component's Python logic, allowing for more dynamic and reusable components.
+
+### How to Use
+
+To pass parameters to a component, simply add them as keyword arguments to the `component()` function in your template.
+
+#### Example: Passing Parameters to a `user_profile` Component
+
+```jinja
+{{ component("user_profile", user_id=123, show_email=true) }}
+```
+
+### Accessing Parameters in Python
+
+The parameters are passed as keyword arguments to the `load_template_context` function in your component's Python file. You can access them using `**kwargs`.
+
+#### Example: `user_profile_logic.py`
+
+```python
+def load_template_context(request, **kwargs):
+    user_id = kwargs.get("user_id")
+    show_email = kwargs.get("show_email", False)
+
+    # Fetch user data based on user_id
+    user = get_user_by_id(user_id)
+
+    return {
+        "user": user,
+        "show_email": show_email,
+        "kwargs": kwargs  # You can also pass the whole kwargs dict
+    }
+```
+
+## Database Integration with SQLAlchemy and Alembic
+
+The framework is integrated with SQLAlchemy for database interactions and uses Alembic for managing database schema migrations. This provides a robust, CLI-driven workflow for keeping your database synchronized with your models.
+
+### Core Components
+
+- **SQLAlchemy**: Used for defining database models in Python (`_models.py` files) and for interacting with the database within component logic.
+- **Alembic**: The tool used to manage database schema migrations. It allows you to generate and apply changes to the database schema as your models evolve.
+- **`framework/config.yaml`**: The central configuration file where the database connection URL is defined.
+- **`database/`**: A dedicated directory containing all Alembic-related files, including the `alembic.ini` configuration and the `versions/` directory for migration scripts.
+
+### How It Works
+
+1.  **Centralized Configuration**: The primary database connection URL is set in `framework/config.yaml` under the `database` key.
+2.  **Dynamic Discovery**: The Alembic environment (`database/env.py`) is configured to automatically discover all files ending in `_models.py` within the `web/components/` directory. It aggregates the metadata from all discovered SQLAlchemy models, ensuring that all your tables are known to Alembic.
+3.  **Configuration Loading**: When you run Alembic commands, the `env.py` script reads the `framework/config.yaml` file to get the database URL, ensuring that Alembic always connects to the correct database.
+4.  **Dependency Injection**: At runtime, the Rust backend reads the same `config.yaml`, initializes a SQLAlchemy session, and injects it as a `db` keyword argument into your Python component functions (`load_template_context`, `action_*`, etc.).
+
+### Database Migration Workflow
+
+Migrations are managed manually via the Alembic command-line interface. This provides full control over the migration process.
+
+**Important**: All `alembic` commands must be run from the **root of the project directory**.
+
+#### 1. Creating a New Migration
+
+After you create a new model or modify an existing one, you must generate a new migration script.
+
+```bash
+alembic -c database/alembic.ini revision --autogenerate -m "A descriptive message about your changes"
+```
+
+**Example**:
+```bash
+alembic -c database/alembic.ini revision --autogenerate -m "Add user profile table"
+```
+This command will inspect your models, compare them to the current state of the database, and generate a new script in the `database/versions/` directory.
+
+#### 2. Applying Migrations
+
+To apply all pending migrations and update the database to the latest version, use the `upgrade` command:
+
+```bash
+alembic -c database/alembic.ini upgrade head
+```
+
+#### 3. Downgrading Migrations
+
+To revert the most recent migration, use the `downgrade` command:
+
+```bash
+alembic -c database/alembic.ini downgrade -1
+```

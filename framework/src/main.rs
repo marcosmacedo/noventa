@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use actix_web::{web, App, HttpServer};
+use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
 use crate::actors::page_renderer::RenderMessage;
 
@@ -19,8 +20,22 @@ use actors::component_renderer::ComponentRendererActor;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    pyo3::Python::initialize();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+
+    pyo3::Python::with_gil(|py| {
+        let sys = py.import("sys").unwrap();
+        let path = sys.getattr("path").unwrap();
+        let path_list = path.downcast::<pyo3::types::PyList>().unwrap();
+        if path_list.append("../database").is_err() {
+            log::error!("Failed to add database to sys.path");
+        }
+        if path_list.append("../web").is_err() {
+            log::error!("Failed to add web to sys.path");
+        }
+        if path_list.append("/Users/marcos/Documents/noventa/framework").is_err() {
+            log::error!("Failed to add framework to sys.path");
+        }
+    });
 
     // Define the paths to the web directories
     let components_dir = Path::new("../web/components");

@@ -6,4 +6,7 @@
 # Directory for temporary file uploads.
 # If not specified, the system's temporary directory will be used.
 temp_dir: "noventa-uploads"
-adaptive_shedding: true
+adaptive_shedding: false
+
+# Database connection URL
+database: "sqlite:///../noventa.db"
