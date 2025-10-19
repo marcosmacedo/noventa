@@ -64,7 +64,7 @@ We believe:
 pip install noventa
 
 # Create a new project
-noventa create my-cool-app
+noventa new my-cool-app
 
 # Run the development server
 cd my-cool-app

@@ -228,3 +228,38 @@ To revert the most recent migration, use the `downgrade` command:
 ```bash
 alembic -c database/alembic.ini downgrade -1
 ```
+
+## Project Scaffolding with `noventa new`
+
+The framework includes a command-line tool to quickly scaffold a new Noventa project, making it easy to get started with a clean and consistent structure.
+
+### How It Works
+
+- **`noventa new [project_name]`**: This command, built into the Rust CLI, automates the creation of a new project.
+- **Cookiecutter**: Under the hood, it uses Cookiecutter to generate the project from a predefined template located in `framework/starter`.
+- **Template Variables**: The `project_name` you provide is passed to the Cookiecutter template, personalizing the new project's files and directories.
+
+### Generated Project Structure
+
+Running `noventa new my-app` will create a new directory named `my-app` with the following structure:
+
+```
+my-app/
+├── components/         # For reusable UI components
+├── pages/              # For your application's pages
+│   └── index.html      # A default landing page
+├── database/           # Alembic database migration setup
+│   ├── versions/
+│   ├── alembic.ini
+│   └── env.py
+└── config.yaml         # Project-specific configuration
+```
+
+### How to Use
+
+1.  **Navigate to your workspace**: Open your terminal in the directory where you want to create your new project.
+2.  **Run the command**:
+    ```bash
+    cargo run -- new your-project-name
+    ```
+3.  **Start developing**: A new directory `your-project-name` will be created. You can now `cd` into it and start the development server.
