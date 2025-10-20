@@ -205,7 +205,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     if dev_mode {
         let server = WsServer::new().start();
-        _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.clone(), template_renderer_addr.clone()).start());
+        _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.clone(), template_renderer_addr.clone(), interpreters_addr.clone()).start());
         ws_server = Some(server);
     }
 
