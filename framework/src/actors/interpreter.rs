@@ -24,6 +24,10 @@ pub struct ExecutePythonFunction {
 
 use uuid::Uuid;
 
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct RescanComponents;
+
 // Define the Python interpreter actor
 pub struct PythonInterpreterActor {
     id: Uuid,
@@ -41,6 +45,18 @@ impl PythonInterpreterActor {
             components,
             db_instance: None,
             dev_mode,
+        }
+    }
+
+    fn scan_components(&mut self) {
+        if self.dev_mode {
+            log::info!("Re-scanning components...");
+            let components = crate::components::scan_components(std::path::Path::new("./components")).unwrap_or_else(|e| {
+                log::error!("Failed to discover components: {}", e);
+                vec![]
+            });
+            log::info!("Found {} components.", components.len());
+            self.components = components;
         }
     }
 }
@@ -195,6 +211,14 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
 
             Ok(value)
         })
+    }
+}
+
+impl Handler<RescanComponents> for PythonInterpreterActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: RescanComponents, _ctx: &mut Self::Context) -> Self::Result {
+        self.scan_components();
     }
 }
 

@@ -4,20 +4,23 @@ use std::fs;
 use crate::actors::ws_server::{WsServer, BroadcastReload};
 use crate::actors::router::{RouterActor, ReloadRoutes};
 use crate::actors::template_renderer::{TemplateRendererActor, RescanComponents};
+use crate::actors::interpreter::{PythonInterpreterActor, RescanComponents as RescanComponentsPy};
 
 pub struct FileWatcherActor {
     ws_server_addr: Addr<WsServer>,
     router_addr: Addr<RouterActor>,
     template_renderer_addr: Addr<TemplateRendererActor>,
+    interpreter_addr: Addr<PythonInterpreterActor>,
     watcher: Option<RecommendedWatcher>,
 }
 
 impl FileWatcherActor {
-    pub fn new(ws_server_addr: Addr<WsServer>, router_addr: Addr<RouterActor>, template_renderer_addr: Addr<TemplateRendererActor>) -> Self {
+    pub fn new(ws_server_addr: Addr<WsServer>, router_addr: Addr<RouterActor>, template_renderer_addr: Addr<TemplateRendererActor>, interpreter_addr: Addr<PythonInterpreterActor>) -> Self {
         Self {
             ws_server_addr,
             router_addr,
             template_renderer_addr,
+            interpreter_addr,
             watcher: None,
         }
     }
@@ -32,6 +35,7 @@ impl Actor for FileWatcherActor {
         let ws_server_addr = self.ws_server_addr.clone();
         let router_addr = self.router_addr.clone();
         let template_renderer_addr = self.template_renderer_addr.clone();
+        let interpreter_addr = self.interpreter_addr.clone();
 
         // Create the watcher first
         let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event>| {
@@ -43,6 +47,7 @@ impl Actor for FileWatcherActor {
                     ws_server_addr.do_send(BroadcastReload);
                     router_addr.do_send(ReloadRoutes);
                     template_renderer_addr.do_send(RescanComponents);
+                    interpreter_addr.do_send(RescanComponentsPy);
                 }
                 Err(e) => log::error!("Watch error: {:?}", e),
             }
