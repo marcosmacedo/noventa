@@ -1533,6 +1533,7 @@ dependencies = [
  "pyo3",
  "pyo3-build-config 0.22.6",
  "pythonize",
+ "regex",
  "serde",
  "serde_json",
  "serde_urlencoded",

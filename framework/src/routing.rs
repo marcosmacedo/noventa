@@ -1,5 +1,6 @@
 use crate::actors::health::{GetSystemHealth, HealthActor};
 use crate::actors::page_renderer::{HttpRequestInfo, RenderMessage};
+use crate::actors::router::{MatchRoute, RouterActor};
 use actix::{Addr, Recipient};
 use actix_multipart::Multipart;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -100,7 +101,8 @@ pub async fn handle_page(
     payload: web::Payload,
     renderer: web::Data<Recipient<RenderMessage>>,
     template_path: String,
-) -> impl Responder {
+    path_params: HashMap<String, String>,
+) -> HttpResponse {
     let (form_data, files) = if req.method() == actix_web::http::Method::POST {
         let content_type = req.headers().get("content-type").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
         if content_type.starts_with("multipart/form-data") {
@@ -132,11 +134,6 @@ pub async fn handle_page(
 
     let query_params: HashMap<String, String> =
         serde_urlencoded::from_str(req.query_string()).unwrap_or_default();
-    let path_params: HashMap<String, String> = req
-        .match_info()
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
 
     let request_info = HttpRequestInfo {
         path: req.path().to_string(),
@@ -177,5 +174,21 @@ pub async fn health_check(health_actor: web::Data<Addr<HealthActor>>) -> impl Re
             log::error!("Failed to get system health: {}", e);
             HttpResponse::InternalServerError().finish()
         }
+    }
+}
+
+pub async fn dynamic_route_handler(
+    req: HttpRequest,
+    payload: web::Payload,
+    router: web::Data<Addr<RouterActor>>,
+    renderer: web::Data<Recipient<RenderMessage>>,
+) -> HttpResponse {
+    let path = req.path().to_string();
+    match router.send(MatchRoute(path)).await {
+        Ok(Some((template_path, path_params))) => {
+            handle_page(req, payload, renderer, template_path, path_params).await
+        }
+        Ok(None) => HttpResponse::NotFound().finish(),
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
