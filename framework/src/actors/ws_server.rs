@@ -1,6 +1,6 @@
 use actix::prelude::*;
 use std::collections::HashSet;
-use crate::actors::dev_websockets::{ReloadMessage, DevWebSocket};
+use crate::actors::dev_websockets::ReloadMessage;
 
 #[derive(Message)]
 #[rtype(result = "()")]

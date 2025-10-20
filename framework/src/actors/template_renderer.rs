@@ -1,6 +1,7 @@
 use crate::actors::component_renderer::{ComponentRendererActor, HandleRender};
 use crate::actors::health::{HealthActor, ReportTemplateLatency};
 use crate::actors::page_renderer::HttpRequestInfo;
+use crate::components::Component;
 use actix::prelude::*;
 use minijinja::{Environment, Error, State, value::Kwargs};
 use std::sync::Arc;
@@ -11,66 +12,25 @@ pub struct TemplateRendererActor {
     component_renderer: Addr<ComponentRendererActor>,
     health_actor: Addr<HealthActor>,
     dev_mode: bool,
+    components: Vec<Component>,
 }
 
 impl TemplateRendererActor {
-    fn load_templates(env: &mut Environment) {
-        // Add page templates
-        let pages_dir = std::path::Path::new("./pages");
-        for entry in walkdir::WalkDir::new(pages_dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().is_file())
-        {
-            let path = entry.into_path();
-            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-            let template = std::fs::read_to_string(path).unwrap();
-            env.add_template_owned(name, template).unwrap();
-        }
-
-        // Add component templates
-        let components_dir = std::path::Path::new("./components");
-        for entry in walkdir::WalkDir::new(components_dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("html"))
-        {
-            let path = entry.path();
-            let name = path.parent().unwrap().file_name().unwrap().to_str().unwrap().to_owned();
-            let template = std::fs::read_to_string(path).unwrap();
-            env.add_template_owned(name, template).unwrap();
-        }
-
-        // Add layout templates
-        let layouts_dir = std::path::Path::new("./layouts");
-        for entry in walkdir::WalkDir::new(layouts_dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("html"))
-        {
-            let path = entry.path();
-            let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-            let template = std::fs::read_to_string(path).unwrap();
-            env.add_template_owned(name, template).unwrap();
-        }
-    }
-
     pub fn new(
         component_renderer: Addr<ComponentRendererActor>,
         health_actor: Addr<HealthActor>,
         dev_mode: bool,
+        components: Vec<Component>,
     ) -> Self {
         let mut env = Environment::new();
-
-        if !dev_mode {
-            Self::load_templates(&mut env);
-        }
+        env.set_loader(minijinja::path_loader("."));
 
         Self {
             env: Arc::new(env),
             component_renderer,
             health_actor,
             dev_mode,
+            components,
         }
     }
 }
@@ -91,23 +51,22 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
     type Result = Result<String, Error>;
 
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
-        let mut env = if self.dev_mode {
-            let mut new_env = Environment::new();
-            Self::load_templates(&mut new_env);
-            new_env
-        } else {
-            (*self.env).clone()
-        };
+        let mut env = (*self.env).clone();
+        if self.dev_mode {
+            env.set_loader(minijinja::path_loader("."));
+        }
 
         let component_renderer_clone = self.component_renderer.clone();
         let _health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
+        let components_clone = self.components.clone();
 
         env.add_function(
             "component",
             move |state: &State, name: String, kwargs: Kwargs| -> Result<minijinja::Value, Error> {
                 let component_renderer_clone = component_renderer_clone.clone();
                 let request_info_clone = request_info_clone.clone();
+                let components_clone = components_clone.clone();
 
                 let kwargs_map: std::collections::HashMap<String, minijinja::Value> = kwargs
                     .args()
@@ -128,8 +87,15 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 let fut = async move {
                     match component_renderer_clone.send(handle_render_msg).await {
                         Ok(Ok(context)) => {
-                            let _start_time = std::time::Instant::now();
-                            let tmpl = state.env().get_template(&name)?;
+                            let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                                Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
+                            })?;
+                            let mut template_path = component.template_path.clone();
+                            if template_path.starts_with("./") {
+                                template_path = template_path[2..].to_string();
+                            }
+
+                            let tmpl = state.env().get_template(&template_path)?;
                             let result = tmpl.render(context)?;
                             Ok(minijinja::Value::from_safe_string(result))
                         }
