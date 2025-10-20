@@ -140,6 +140,16 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             result.insert_str(body_end_pos, &script_tag);
         }
 
+        
+
+        if self.dev_mode {
+            const DEV_SCRIPT_CONTENT: &str = include_str!("../scripts/devws.js");
+            if let Some(body_end_pos) = result.rfind("</body>") {
+                let script_tag = format!("<script>{}</script>\n", DEV_SCRIPT_CONTENT);
+                result.insert_str(body_end_pos, &script_tag);
+            }
+        }
+
         if let Some(body_end_pos) = result.rfind("</body>") {
             let script_tag = "<script src=\"https://cdn.jsdelivr.net/npm/@unocss/runtime/uno.global.js\"></script>";
             result.insert_str(body_end_pos, &script_tag);

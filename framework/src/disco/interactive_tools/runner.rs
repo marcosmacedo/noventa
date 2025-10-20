@@ -22,35 +22,44 @@ impl ToolRunner {
             None => return "Unknown tool".to_string(),
         };
 
-        // Get or create a session
-        let mut session = self.session_manager.get_session()
-            .unwrap_or_else(|| self.session_manager.create_session(&tool.initial_step));
+        let session_existed = self.session_manager.get_session().map_or(false, |s| s.tool_name == tool_name);
 
-        // If there is user input, process it to find the next step
-        if let Some(input_index) = user_input {
-            let current_step = tool.steps.get(&session.current_step).unwrap();
-            if let Some(options) = &current_step.options {
-                if let Some(selected_option) = options.get(input_index - 1) {
-                    if selected_option.next_step == "[END]" {
-                        self.session_manager.end_session();
-                        return "Session ended.".to_string();
-                    }
-                    // Update session to the next step
-                    session.current_step = selected_option.next_step.clone();
-                    self.session_manager.update_session(&session.current_step);
-                } else {
-                    return "Invalid option.".to_string();
-                }
-            } else { // End of a branch with no options
+        let mut session = match self.session_manager.get_session() {
+            Some(s) if s.tool_name == tool_name => s,
+            _ => {
                 self.session_manager.end_session();
-                return "Session ended.".to_string();
+                self.session_manager
+                    .create_session(tool_name, &tool.initial_step)
+            }
+        };
+
+        if session_existed {
+            if let Some(input_index) = user_input {
+                let current_step = tool.steps.get(&session.current_step).unwrap();
+                if let Some(options) = &current_step.options {
+                    if input_index > 0 {
+                        if let Some(selected_option) = options.get(input_index - 1) {
+                            if selected_option.next_step == "[END]" {
+                                self.session_manager.end_session();
+                                return "Session ended.".to_string();
+                            }
+                            session.current_step = selected_option.next_step.clone();
+                            self.session_manager.update_session(&session.current_step);
+                        } else {
+                            return "Invalid option.".to_string();
+                        }
+                    } else {
+                        return "Invalid option.".to_string();
+                    }
+                } else {
+                    self.session_manager.end_session();
+                    return "Session ended.".to_string();
+                }
             }
         }
 
-        // Get the step definition for the current (or newly updated) step
         let step_def = tool.steps.get(&session.current_step).unwrap();
 
-        // Format the response. If there are no options, this is a final step.
         let response = self.format_step(step_def, tool_name);
         if step_def.options.is_none() {
             self.session_manager.end_session();
