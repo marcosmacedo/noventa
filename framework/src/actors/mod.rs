@@ -4,3 +4,6 @@ pub mod interpreter;
 pub mod page_renderer;
 pub mod template_renderer;
 pub mod load_shedding;
+pub mod dev_websockets;
+pub mod file_watcher;
+pub mod ws_server;
