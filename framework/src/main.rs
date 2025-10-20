@@ -36,6 +36,8 @@ struct Cli {
 enum Commands {
     /// Runs the development web server
     Dev,
+    /// Runs the production web server
+    Serve,
     /// Runs the MCP server
     Disco,
     /// Create a new project
@@ -46,14 +48,22 @@ enum Commands {
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
-        Some(Commands::Dev) => run_dev_server().await,
+    let (dev_mode, command) = match cli.command {
+        Some(Commands::Dev) => (true, Some(Commands::Dev)),
+        Some(Commands::Serve) => (false, Some(Commands::Serve)),
+        Some(Commands::Disco) => (false, Some(Commands::Disco)),
+        Some(Commands::New { ref name }) => (false, Some(Commands::New { name: name.clone() })),
+        None => (true, None), // Default to dev mode
+    };
+
+    let command_to_run = command.as_ref().or(cli.command.as_ref());
+
+    match command_to_run {
+        Some(Commands::Dev) | None => run_dev_server(dev_mode).await,
+        Some(Commands::Serve) => run_dev_server(dev_mode).await,
         Some(Commands::Disco) => disco::server::run_disco_server().await,
-        Some(Commands::New { name }) => create_new_project(&name),
-        None => {
-            // Default to dev server
-            run_dev_server().await
-        }
+        Some(Commands::New { name }) => create_new_project(name),
+        _ => unreachable!(), // Should not happen
     }
 }
 
@@ -97,8 +107,12 @@ fn create_new_project(name: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-async fn run_dev_server() -> std::io::Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
+    if dev_mode {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    } else {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    }
 
     pyo3::Python::attach(|py| {
         let sys = py.import("sys").unwrap();
@@ -150,7 +164,7 @@ async fn run_dev_server() -> std::io::Result<()> {
     // PythonInterpreterActor runs in a SyncArbiter with a dedicated thread pool.
     let components_clone = components.clone();
     let interpreters_addr = SyncArbiter::start(python_threads, move || {
-        PythonInterpreterActor::new(components_clone.clone())
+        PythonInterpreterActor::new(components_clone.clone(), dev_mode)
     });
 
     // ComponentRendererActor is a lightweight coordinator, so it runs as a regular async actor.
@@ -159,7 +173,7 @@ async fn run_dev_server() -> std::io::Result<()> {
     // TemplateRendererActor is also CPU-bound and runs in its own SyncArbiter.
     let value = health_actor_addr.clone();
     let template_renderer_addr = SyncArbiter::start(template_renderer_threads, move || {
-        TemplateRendererActor::new(component_renderer_addr.clone(), value.clone())
+        TemplateRendererActor::new(component_renderer_addr.clone(), value.clone(), dev_mode)
     });
 
     // PageRendererActor is a lightweight coordinator, running as a regular async actor.

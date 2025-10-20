@@ -18,7 +18,7 @@ def load_template_context(request, db=None, **kwargs):
     counter = get_or_create_counter(db)
     return {
         "count": counter.count,
-        "items": ["apple", "banana", "cherry"],
+        "items": ["test", "banana", "cherry"],
         "user": {"name": "John Doe"},
         "kwargs": kwargs
     }

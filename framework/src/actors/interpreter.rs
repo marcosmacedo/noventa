@@ -30,15 +30,17 @@ pub struct PythonInterpreterActor {
     modules: HashMap<String, Py<PyModule>>,
     components: Vec<Component>,
     db_instance: Option<Py<PyAny>>,
+    dev_mode: bool,
 }
 
 impl PythonInterpreterActor {
-    pub fn new(components: Vec<Component>) -> Self {
+    pub fn new(components: Vec<Component>, dev_mode: bool) -> Self {
         Self {
             id: Uuid::new_v4(),
             modules: HashMap::new(),
             components,
             db_instance: None,
+            dev_mode,
         }
     }
 }
@@ -74,29 +76,31 @@ impl Actor for PythonInterpreterActor {
                 }
             }
 
-            // 2️⃣ Import each component by absolute path
-            let importlib = py.import("importlib").unwrap();
-            let import_module = importlib.getattr("import_module").unwrap();
+            if !self.dev_mode {
+                // 2️⃣ Import each component by absolute path
+                let importlib = py.import("importlib").unwrap();
+                let import_module = importlib.getattr("import_module").unwrap();
 
-            for component in &self.components {
-                if let Some(logic_path) = &component.logic_path {
-                    let module_path = match path_to_module(logic_path) {
-                        Ok(path) => path,
-                        Err(e) => {
-                            log::error!("Failed to convert path to module for {}: {}", logic_path, e);
-                            continue;
-                        }
-                    };
+                for component in &self.components {
+                    if let Some(logic_path) = &component.logic_path {
+                        let module_path = match path_to_module(logic_path) {
+                            Ok(path) => path,
+                            Err(e) => {
+                                log::error!("Failed to convert path to module for {}: {}", logic_path, e);
+                                continue;
+                            }
+                        };
 
-                    match import_module.call1((module_path,)) {
-                        Ok(module) => {
-                            self.modules.insert(
-                                component.id.clone(),
-                                module.downcast::<PyModule>().unwrap().clone().into(),
-                            );
-                        }
-                        Err(e) => {
-                            log::error!("Failed to load component {}: {}", component.id, e);
+                        match import_module.call1((module_path,)) {
+                            Ok(module) => {
+                                self.modules.insert(
+                                    component.id.clone(),
+                                    module.downcast::<PyModule>().unwrap().clone().into(),
+                                );
+                            }
+                            Err(e) => {
+                                log::error!("Failed to load component {}: {}", component.id, e);
+                            }
                         }
                     }
                 }
@@ -116,13 +120,49 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
             msg.component_name
         );
         Python::attach(|py| {
-            let module = self
-                .modules
-                .get(&msg.component_name)
-                .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found"))?;
+            let module = if self.dev_mode {
+                let component = self
+                    .components
+                    .iter()
+                    .find(|c| c.id == msg.component_name)
+                    .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found in dev mode"))?;
+
+                if let Some(logic_path) = &component.logic_path {
+                    let module_path = path_to_module(logic_path)
+                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
+
+                    let importlib = py
+                        .import("importlib")
+                        .map_err(|e| pyerr_to_io_error(e, py))?;
+                    let import_module = importlib
+                        .getattr("import_module")
+                        .map_err(|e| pyerr_to_io_error(e, py))?;
+                    let module = import_module
+                        .call1((module_path,))
+                        .map_err(|e| pyerr_to_io_error(e, py))?;
+
+                    let reload = importlib
+                        .getattr("reload")
+                        .map_err(|e| pyerr_to_io_error(e, py))?;
+                    reload.call1((module.clone(),)).map_err(|e| pyerr_to_io_error(e, py))?;
+
+                    module
+                        .downcast::<PyModule>()
+                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
+                        .clone()
+                        .into()
+                } else {
+                    return Err(Error::new(ErrorKind::NotFound, "Component logic not found"));
+                }
+            } else {
+                self.modules
+                    .get(&msg.component_name)
+                    .map(|m| m.clone_ref(py))
+                    .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found"))?
+            };
 
             let func = module
-                .getattr(py, msg.function_name)
+                .getattr(py, &msg.function_name)
                 .map_err(|e| pyerr_to_io_error(e, py))?;
 
             let py_request = Py::new(py, PyRequest { inner: msg.request }).unwrap();
