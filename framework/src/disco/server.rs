@@ -97,8 +97,10 @@ pub async fn run_disco_server() -> std::io::Result<()> {
                                             input_schema: serde_json::json!({
                                                 "type": "object",
                                                 "properties": {
-                                                    "user_id": { "type": "string" },
-                                                    "user_input": { "type": "integer" }
+                                                    "user_input": {
+                                                        "type": "integer",
+                                                        "description": "The numerical option selected by the user."
+                                                     }
                                                 }
                                             }),
                                         });

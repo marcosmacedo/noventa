@@ -1,4 +1,4 @@
-function handleRequest(url, options) {
+function handleRequest(url, options, isPopState = false) {
     fetch(url, options)
         .then(response => response.text())
         .then(html => {
@@ -6,7 +6,9 @@ function handleRequest(url, options) {
             const doc = parser.parseFromString(html, 'text/html');
             morphdom(document.head, doc.head);
             morphdom(document.body, doc.body);
-            window.history.pushState({}, '', url);
+            if (!isPopState) {
+                window.history.pushState({}, '', url);
+            }
         })
         .catch(error => console.error('Error fetching page:', error));
 }
@@ -37,6 +39,10 @@ document.addEventListener('submit', event => {
             });
         }
     }
+});
+
+window.addEventListener('popstate', event => {
+    handleRequest(window.location.href, { method: 'GET' }, true);
 });
 
 console.log("Frontend script loaded and active.");
