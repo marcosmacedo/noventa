@@ -28,6 +28,7 @@ lazy_static = "1.4.0"
 num_cpus = "1.17.0"
 clap = { version = "4.5.4", features = ["derive"] }
 notify = "6.1.1"
+regex = "1.10.5"
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"

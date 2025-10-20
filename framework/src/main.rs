@@ -24,6 +24,7 @@ use actors::template_renderer::TemplateRendererActor;
 use actors::component_renderer::ComponentRendererActor;
 use actors::dev_websockets::DevWebSocket;
 use actors::file_watcher::FileWatcherActor;
+use actors::router::RouterActor;
 use actors::ws_server::WsServer;
 
 use clap::Parser;
@@ -131,14 +132,10 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     // Define the paths to the web directories
     let components_dir = Path::new("./components");
-    let pages_dir = Path::new("./pages");
 
     // Scan for components
     let components = components::scan_components(components_dir)?;
     log::info!("Found {} components.", components.len());
-
-    // Build the routes from the pages directory
-    let routes = routing::get_routes(pages_dir);
 
     // --- Core Allocation ---
     // We are manually partitioning the CPU cores to ensure predictable performance.
@@ -201,12 +198,14 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         renderer_data = web::Data::new(page_renderer_addr.recipient());
     };
 
+    let router_addr = RouterActor::new().start();
+
     let mut ws_server: Option<Addr<WsServer>> = None;
     let mut _watcher: Option<Addr<FileWatcherActor>> = None;
 
     if dev_mode {
         let server = WsServer::new().start();
-        _watcher = Some(FileWatcherActor::new(server.clone()).start());
+        _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.clone()).start());
         ws_server = Some(server);
     }
 
@@ -214,6 +213,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         let mut app = App::new()
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
+            .app_data(web::Data::new(router_addr.clone()))
             .route("/health", web::get().to(routing::health_check));
 
         if dev_mode {
@@ -229,26 +229,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
             app = app.service(Files::new(url_prefix, static_path).show_files_listing());
         }
 
-        for (route, template_path) in &routes {
-            let renderer_data_clone = renderer_data.clone();
-            app = app.route(
-                route,
-                web::route().to({
-                    let mut template_path = template_path.to_str().unwrap().to_string();
-                    if template_path.starts_with("./") {
-                        template_path = template_path[2..].to_string();
-                    }
-                    move |req, payload| {
-                        routing::handle_page(
-                            req,
-                            payload,
-                            renderer_data_clone.clone(),
-                            template_path.clone(),
-                        )
-                    }
-                }),
-            );
-        }
+        app = app.default_service(web::route().to(routing::dynamic_route_handler));
         app
     })
     .workers(actix_web_threads) // Set the number of web server worker threads.
