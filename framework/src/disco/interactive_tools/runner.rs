@@ -1,6 +1,6 @@
 // framework/src/disco/interactive_tools/runner.rs
 use crate::disco::interactive_tools::models::{InteractiveTool, Step};
-use crate::disco::interactive_tools::session::{Session, SessionManager};
+use crate::disco::interactive_tools::session::SessionManager;
 use std::collections::HashMap;
 
 pub struct ToolRunner {

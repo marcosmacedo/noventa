@@ -1,0 +1,29 @@
+name: "dynamic_routing_explainer"
+description: "Explains how to create pages with dynamic URL parameters."
+
+initial_step: "start"
+
+steps:
+  start:
+    text: "This tool explains dynamic routing. Have you seen the `[dynamic]` directory in `web/pages/other/`? That's how you create dynamic routes."
+    options:
+      - label: "Tell me more."
+        next_step: "explain_structure"
+      - label: "Cancel"
+        next_step: "[END]"
+
+  explain_structure:
+    text: "When you create a directory with brackets in its name, like `[dynamic]`, it becomes a placeholder for a URL parameter. For example, the file `web/pages/other/[dynamic]/index.html` will handle URLs like `/other/foo` or `/other/bar`."
+    options:
+      - label: "How do I access the parameter in my code?"
+        next_step: "explain_parameter_access"
+      - label: "Go back."
+        next_step: "start"
+
+  explain_parameter_access:
+    text: "In the logic for a page or a component on that page, you can access the value of the `dynamic` parameter. It will be passed as an argument to your functions, so you can use it to fetch data or customize the content."
+    options:
+      - label: "I see. Thanks!"
+        next_step: "[END]"
+      - label: "Go back."
+        next_step: "explain_structure"

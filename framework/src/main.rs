@@ -175,8 +175,14 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     // TemplateRendererActor is also CPU-bound and runs in its own SyncArbiter.
     let value = health_actor_addr.clone();
+    let components_clone_for_template_renderer = components.clone();
     let template_renderer_addr = SyncArbiter::start(template_renderer_threads, move || {
-        TemplateRendererActor::new(component_renderer_addr.clone(), value.clone(), dev_mode)
+        TemplateRendererActor::new(
+            component_renderer_addr.clone(),
+            value.clone(),
+            dev_mode,
+            components_clone_for_template_renderer.clone(),
+        )
     });
 
     // PageRendererActor is a lightweight coordinator, running as a regular async actor.
@@ -228,12 +234,10 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
             app = app.route(
                 route,
                 web::route().to({
-                    let template_path = template_path
-                        .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                        .to_string();
+                    let mut template_path = template_path.to_str().unwrap().to_string();
+                    if template_path.starts_with("./") {
+                        template_path = template_path[2..].to_string();
+                    }
                     move |req, payload| {
                         routing::handle_page(
                             req,

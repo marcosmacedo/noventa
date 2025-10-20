@@ -1,7 +1,6 @@
 use actix::prelude::*;
 use notify::{RecommendedWatcher, Watcher, RecursiveMode, Result};
 use std::fs;
-use std::path::PathBuf;
 use crate::actors::ws_server::{WsServer, BroadcastReload};
 
 pub struct FileWatcherActor {
