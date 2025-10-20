@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Debug, Clone)]
 pub struct Session {
     pub current_step: String,
+    pub tool_name: String,
 }
 
 pub struct SessionManager {
@@ -21,10 +22,11 @@ impl SessionManager {
         self.session.lock().unwrap().clone()
     }
 
-    pub fn create_session(&self, initial_step: &str) -> Session {
+    pub fn create_session(&self, tool_name: &str, initial_step: &str) -> Session {
         let mut session_guard = self.session.lock().unwrap();
         let new_session = Session {
             current_step: initial_step.to_string(),
+            tool_name: tool_name.to_string(),
         };
         *session_guard = Some(new_session.clone());
         new_session

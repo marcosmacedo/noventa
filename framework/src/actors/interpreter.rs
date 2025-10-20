@@ -53,7 +53,7 @@ impl Actor for PythonInterpreterActor {
             // 1️⃣ Add the 'web' folder to sys.path
             let sys = py.import("sys").unwrap();
             let path = sys.getattr("path").unwrap();
-            path.call_method1("insert", (0, "../web")).unwrap();
+            path.call_method1("insert", (0, ".")).unwrap();
 
             if let Some(db_url) = &CONFIG.database {
                 match py.import("db") {
