@@ -13,7 +13,7 @@ pyo3 = { version = "0.26.0", features = ["auto-initialize", "multiple-pymethods"
 pythonize = "0.26.0"
 log = "0.4"
 env_logger = "0.11.3"
-minijinja = { version = "2.2.0", features = ["loader", "json"] }
+minijinja = { version = "2.2.0", features = ["loader", "json", "builtins"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"
