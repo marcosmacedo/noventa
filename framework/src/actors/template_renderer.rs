@@ -33,10 +33,25 @@ impl TemplateRendererActor {
             components,
         }
     }
+    fn scan_components(&mut self) {
+        if self.dev_mode {
+            log::info!("Re-scanning components...");
+            let components = crate::components::scan_components(std::path::Path::new("./components")).unwrap_or_else(|e| {
+                log::error!("Failed to discover components: {}", e);
+                vec![]
+            });
+            log::info!("Found {} components.", components.len());
+            self.components = components;
+        }
+    }
 }
 
 impl Actor for TemplateRendererActor {
     type Context = SyncContext<Self>;
+
+    fn started(&mut self, _ctx: &mut Self::Context) {
+        self.scan_components();
+    }
 }
 
 // Message for rendering a template
@@ -46,6 +61,10 @@ pub struct RenderTemplate {
     pub template_name: String,
     pub request_info: Arc<HttpRequestInfo>,
 }
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct RescanComponents;
 
 impl Handler<RenderTemplate> for TemplateRendererActor {
     type Result = Result<String, Error>;
@@ -156,5 +175,13 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         }
 
         Ok(result)
+    }
+}
+
+impl Handler<RescanComponents> for TemplateRendererActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: RescanComponents, _ctx: &mut Self::Context) -> Self::Result {
+        self.scan_components();
     }
 }
