@@ -1,5 +1,6 @@
 use actix::prelude::*;
-use actix_web::{web, App, HttpServer};
+use actix_web::{web, App, HttpRequest, HttpServer, Error};
+use actix_web_actors::ws;
 use actix_files::Files;
 use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
@@ -21,6 +22,9 @@ use actors::load_shedding::LoadSheddingActor;
 use actors::page_renderer::PageRendererActor;
 use actors::template_renderer::TemplateRendererActor;
 use actors::component_renderer::ComponentRendererActor;
+use actors::dev_websockets::DevWebSocket;
+use actors::file_watcher::FileWatcherActor;
+use actors::ws_server::WsServer;
 
 use clap::Parser;
 
@@ -63,7 +67,6 @@ async fn main() -> std::io::Result<()> {
         Some(Commands::Serve) => run_dev_server(dev_mode).await,
         Some(Commands::Disco) => disco::server::run_disco_server().await,
         Some(Commands::New { name }) => create_new_project(name),
-        _ => unreachable!(), // Should not happen
     }
 }
 
@@ -192,11 +195,25 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         renderer_data = web::Data::new(page_renderer_addr.recipient());
     };
 
+    let mut ws_server: Option<Addr<WsServer>> = None;
+    let mut _watcher: Option<Addr<FileWatcherActor>> = None;
+
+    if dev_mode {
+        let server = WsServer::new().start();
+        _watcher = Some(FileWatcherActor::new(server.clone()).start());
+        ws_server = Some(server);
+    }
+
     HttpServer::new(move || {
         let mut app = App::new()
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .route("/health", web::get().to(routing::health_check));
+
+        if dev_mode {
+            app = app.app_data(web::Data::new(ws_server.as_ref().unwrap().clone()))
+                     .route("/devws", web::get().to(dev_ws));
+        }
 
         if let Some(static_path) = &config::CONFIG.static_path {
             let url_prefix = config::CONFIG
@@ -234,5 +251,9 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
+}
+
+async fn dev_ws(req: HttpRequest, stream: web::Payload, srv: web::Data<Addr<WsServer>>) -> Result<actix_web::HttpResponse, Error> {
+    ws::start(DevWebSocket::new(srv.get_ref().clone()), &req, stream)
 }
 
