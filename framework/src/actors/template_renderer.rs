@@ -10,16 +10,11 @@ pub struct TemplateRendererActor {
     env: Arc<Environment<'static>>,
     component_renderer: Addr<ComponentRendererActor>,
     health_actor: Addr<HealthActor>,
+    dev_mode: bool,
 }
 
-
 impl TemplateRendererActor {
-    pub fn new(
-        component_renderer: Addr<ComponentRendererActor>,
-        health_actor: Addr<HealthActor>,
-    ) -> Self {
-        let mut env = Environment::new();
-
+    fn load_templates(env: &mut Environment) {
         // Add page templates
         let pages_dir = std::path::Path::new("./pages");
         for entry in walkdir::WalkDir::new(pages_dir)
@@ -46,7 +41,7 @@ impl TemplateRendererActor {
             env.add_template_owned(name, template).unwrap();
         }
 
-        // Add component templates
+        // Add layout templates
         let layouts_dir = std::path::Path::new("./layouts");
         for entry in walkdir::WalkDir::new(layouts_dir)
             .into_iter()
@@ -58,11 +53,24 @@ impl TemplateRendererActor {
             let template = std::fs::read_to_string(path).unwrap();
             env.add_template_owned(name, template).unwrap();
         }
- 
+    }
+
+    pub fn new(
+        component_renderer: Addr<ComponentRendererActor>,
+        health_actor: Addr<HealthActor>,
+        dev_mode: bool,
+    ) -> Self {
+        let mut env = Environment::new();
+
+        if !dev_mode {
+            Self::load_templates(&mut env);
+        }
+
         Self {
             env: Arc::new(env),
             component_renderer,
             health_actor,
+            dev_mode,
         }
     }
 }
@@ -83,7 +91,14 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
     type Result = Result<String, Error>;
 
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
-        let mut env = (*self.env).clone();
+        let mut env = if self.dev_mode {
+            let mut new_env = Environment::new();
+            Self::load_templates(&mut new_env);
+            new_env
+        } else {
+            (*self.env).clone()
+        };
+
         let component_renderer_clone = self.component_renderer.clone();
         let _health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
@@ -146,9 +161,21 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         self.health_actor
             .do_send(ReportTemplateLatency(duration_ms));
 
-        const SCRIPT_CONTENT: &str = include_str!("../injection.js");
+
+        const MDOM_SCRIPT_CONTENT: &str = include_str!("../scripts/morphdom-umd.min.js");
+        if let Some(body_end_pos) = result.rfind("</body>") {
+            let script_tag = format!("<script>{}</script>\n", MDOM_SCRIPT_CONTENT);
+            result.insert_str(body_end_pos, &script_tag);
+        }
+
+        const SCRIPT_CONTENT: &str = include_str!("../scripts/frontend.js");
         if let Some(body_end_pos) = result.rfind("</body>") {
             let script_tag = format!("<script>{}</script>\n", SCRIPT_CONTENT);
+            result.insert_str(body_end_pos, &script_tag);
+        }
+
+        if let Some(body_end_pos) = result.rfind("</body>") {
+            let script_tag = "<script src=\"https://cdn.jsdelivr.net/npm/@unocss/runtime/uno.global.js\"></script>";
             result.insert_str(body_end_pos, &script_tag);
         }
 
