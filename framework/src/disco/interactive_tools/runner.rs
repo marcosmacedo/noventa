@@ -16,15 +16,15 @@ impl ToolRunner {
         }
     }
 
-    pub fn run_tool(&self, user_id: &str, tool_name: &str, user_input: Option<usize>) -> String {
+    pub fn run_tool(&self, tool_name: &str, user_input: Option<usize>) -> String {
         let tool = match self.tools.get(tool_name) {
             Some(t) => t,
             None => return "Unknown tool".to_string(),
         };
 
         // Get or create a session
-        let mut session = self.session_manager.get_session(user_id)
-            .unwrap_or_else(|| self.session_manager.create_session(user_id, tool_name, &tool.initial_step));
+        let mut session = self.session_manager.get_session()
+            .unwrap_or_else(|| self.session_manager.create_session(&tool.initial_step));
 
         // If there is user input, process it to find the next step
         if let Some(input_index) = user_input {
@@ -32,17 +32,17 @@ impl ToolRunner {
             if let Some(options) = &current_step.options {
                 if let Some(selected_option) = options.get(input_index - 1) {
                     if selected_option.next_step == "[END]" {
-                        self.session_manager.end_session(user_id);
+                        self.session_manager.end_session();
                         return "Session ended.".to_string();
                     }
                     // Update session to the next step
                     session.current_step = selected_option.next_step.clone();
-                    self.session_manager.update_session(user_id, &session.current_step);
+                    self.session_manager.update_session(&session.current_step);
                 } else {
                     return "Invalid option.".to_string();
                 }
             } else { // End of a branch with no options
-                self.session_manager.end_session(user_id);
+                self.session_manager.end_session();
                 return "Session ended.".to_string();
             }
         }
@@ -53,7 +53,7 @@ impl ToolRunner {
         // Format the response. If there are no options, this is a final step.
         let response = self.format_step(step_def, tool_name);
         if step_def.options.is_none() {
-            self.session_manager.end_session(user_id);
+            self.session_manager.end_session();
         }
 
         response

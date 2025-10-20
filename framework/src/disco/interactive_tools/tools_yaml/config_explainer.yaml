@@ -1,0 +1,41 @@
+name: "config_explainer"
+description: "An interactive guide to the `config.yaml` file."
+
+initial_step: "start"
+
+steps:
+  start:
+    text: "This tool explains the settings in your `web/config.yaml` file. Which setting would you like to know more about?"
+    options:
+      - label: "The `database` setting."
+        next_step: "explain_database"
+      - label: "The `static_path` setting."
+        next_step: "explain_static_path"
+      - label: "The `static_url_prefix` setting."
+        next_step: "explain_static_url_prefix"
+      - label: "Exit"
+        next_step: "[END]"
+
+  explain_database:
+    text: "The `database` setting on line 12 is the connection URL for your application's database. By default, it's configured to use a local SQLite database file named `noventa.db`."
+    options:
+      - label: "Tell me about `static_path`."
+        next_step: "explain_static_path"
+      - label: "Go back."
+        next_step: "start"
+
+  explain_static_path:
+    text: "The `static_path` setting on line 16 tells Noventa where to find your static files (like CSS, JS, and images). It's set to 'files', which corresponds to the `web/files/` directory."
+    options:
+      - label: "What about `static_url_prefix`?"
+        next_step: "explain_static_url_prefix"
+      - label: "Go back."
+        next_step: "start"
+
+  explain_static_url_prefix:
+    text: "The `static_url_prefix` on line 19 is the URL that your static files will be served from. Since it's set to '/files', a file like `web/files/test.txt` would be accessible at the URL `/files/test.txt`."
+    options:
+      - label: "Got it. Thanks!"
+        next_step: "[END]"
+      - label: "Go back."
+        next_step: "start"

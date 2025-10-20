@@ -1,20 +1,46 @@
 // framework/src/disco/interactive_tools/parser.rs
 use crate::disco::interactive_tools::models::InteractiveTool;
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
-use walkdir::WalkDir;
 
-pub fn load_tools(dir: &Path) -> Result<HashMap<String, InteractiveTool>, String> {
+const API_INTEGRATION_HELPER: &str =
+    include_str!("tools_yaml/api_integration_helper.yaml");
+const COMPONENT_GENERATOR: &str =
+    include_str!("tools_yaml/component_generator.yaml");
+const CONFIG_EXPLAINER: &str =
+    include_str!("tools_yaml/config_explainer.yaml");
+const DATABASE_MIGRATION_HELPER: &str =
+    include_str!("tools_yaml/database_migration_helper.yaml");
+const DYNAMIC_ROUTING_EXPLAINER: &str =
+    include_str!("tools_yaml/dynamic_routing_explainer.yaml");
+const NEW_PAGE_CREATOR: &str =
+    include_str!("tools_yaml/new_page_creator.yaml");
+const ONBOARDING_GUIDE: &str =
+    include_str!("tools_yaml/onboarding_guide.yaml");
+const STATIC_FILE_GUIDE: &str =
+    include_str!("tools_yaml/static_file_guide.yaml");
+
+static TOOLS: Lazy<HashMap<String, InteractiveTool>> = Lazy::new(|| {
     let mut tools = HashMap::new();
-    for entry in WalkDir::new(dir).into_iter().filter_map(|e| e.ok()) {
-        if entry.path().extension().and_then(|s| s.to_str()) == Some("yaml") {
-            let content = fs::read_to_string(entry.path())
-                .map_err(|e| format!("Failed to read tool file: {}", e))?;
-            let tool: InteractiveTool = serde_yaml::from_str(&content)
-                .map_err(|e| format!("Failed to parse tool file: {}", e))?;
-            tools.insert(tool.name.clone(), tool);
-        }
+    let tool_files = vec![
+        API_INTEGRATION_HELPER,
+        COMPONENT_GENERATOR,
+        CONFIG_EXPLAINER,
+        DATABASE_MIGRATION_HELPER,
+        DYNAMIC_ROUTING_EXPLAINER,
+        NEW_PAGE_CREATOR,
+        ONBOARDING_GUIDE,
+        STATIC_FILE_GUIDE,
+    ];
+
+    for content in tool_files {
+        let tool: InteractiveTool = serde_yaml::from_str(content)
+            .expect("Failed to parse tool file");
+        tools.insert(tool.name.clone(), tool);
     }
-    Ok(tools)
+    tools
+});
+
+pub fn load_tools() -> &'static HashMap<String, InteractiveTool> {
+    &TOOLS
 }

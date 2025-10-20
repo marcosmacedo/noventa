@@ -1,0 +1,31 @@
+name: "database_migration_helper"
+description: "A helper for creating and running database migrations with Alembic."
+
+initial_step: "start"
+
+steps:
+  start:
+    text: "This tool helps with database migrations. What do you want to do?"
+    options:
+      - label: "Create a new migration."
+        next_step: "explain_create_migration"
+      - label: "Apply migrations to the database."
+        next_step: "explain_apply_migration"
+      - label: "Cancel"
+        next_step: "[END]"
+
+  explain_create_migration:
+    text: "To create a new migration script after changing your database models, you run a command. The command is `alembic revision --autogenerate -m \"Your message\"`. This will create a new file in the `web/database/versions/` directory. You should review this file before applying it."
+    options:
+      - label: "How do I apply the migration?"
+        next_step: "explain_apply_migration"
+      - label: "Go back."
+        next_step: "start"
+
+  explain_apply_migration:
+    text: "To apply all pending migrations to your database, you use the command `alembic upgrade head`. This will update your database schema to match your latest models."
+    options:
+      - label: "Got it, thanks!"
+        next_step: "[END]"
+      - label: "Go back."
+        next_step: "start"

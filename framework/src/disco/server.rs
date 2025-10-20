@@ -1,5 +1,4 @@
 use std::io::{self, BufRead};
-use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -18,8 +17,7 @@ enum ServerState {
 
 pub async fn run_disco_server() -> std::io::Result<()> {
     let mut state = ServerState::Uninitialized;
-    let tools_dir = Path::new("src/disco/interactive_tools/tools_yaml");
-    let interactive_tools = parser::load_tools(tools_dir).unwrap();
+    let interactive_tools = parser::load_tools().clone();
     let session_manager = SessionManager::new();
     let tool_runner = Arc::new(ToolRunner::new(interactive_tools, session_manager));
 
@@ -101,8 +99,7 @@ pub async fn run_disco_server() -> std::io::Result<()> {
                                                 "properties": {
                                                     "user_id": { "type": "string" },
                                                     "user_input": { "type": "integer" }
-                                                },
-                                                "required": ["user_id"]
+                                                }
                                             }),
                                         });
                                     }

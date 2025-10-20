@@ -1,0 +1,21 @@
+name: "component_generator"
+description: "A tool to help you create new components."
+
+initial_step: "start"
+
+steps:
+  start:
+    text: "This tool will help you create a new component. What is the name of your component? (e.g., 'user_profile')"
+    options:
+      - label: "Let's say my component is called 'user_card'."
+        next_step: "explain_files"
+      - label: "Cancel"
+        next_step: "[END]"
+
+  explain_files:
+    text: "Great! For a component named 'user_card', you would need to create a directory `web/components/user_card/` and inside it, the following files:\n1. `user_card_template.html`: The HTML structure of your component.\n2. `user_card_logic.py`: The Python logic to handle data and events.\n3. `user_card_models.py`: The Pydantic models for your component's state."
+    options:
+      - label: "Got it, thanks!"
+        next_step: "[END]"
+      - label: "Go back."
+        next_step: "start"

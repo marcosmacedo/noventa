@@ -1,0 +1,33 @@
+name: "api_integration_helper"
+description: "A guide for calling external APIs from your component logic."
+
+initial_step: "start"
+
+steps:
+  start:
+    text: "This tool shows a basic pattern for calling an external API from your component's `_logic.py` file. We'll use the `requests` library for this."
+    options:
+      - label: "Show me an example."
+        next_step: "show_example"
+      - label: "What do I need to install?"
+        next_step: "explain_installation"
+      - label: "Cancel"
+        next_step: "[END]"
+
+  explain_installation:
+    text: "You'll need to install the `requests` library. You can do this by running `pip install requests` in your terminal."
+    options:
+      - label: "Show me an example of how to use it."
+        next_step: "show_example"
+      - label: "Go back."
+        next_step: "start"
+
+  show_example:
+    text: "Here is a simple example of fetching data from a JSON API in your `_logic.py` file:\n\n```python\nimport requests\n\ndef get_user_data(user_id: int):\n    response = requests.get(f\"https://api.example.com/users/{user_id}\")\n    if response.status_code == 200:\n        return response.json()  # Returns a dictionary\n    return None\n```\nYou can then call this function and pass the data to your component's template."
+    options:
+      - label: "Great, that helps a lot!"
+        next_step: "[END]"
+      - label: "What about installation?"
+        next_step: "explain_installation"
+      - label: "Go back."
+        next_step: "start"
