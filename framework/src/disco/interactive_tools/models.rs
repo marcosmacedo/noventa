@@ -2,7 +2,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct InteractiveTool {
     pub name: String,
     pub description: String,
@@ -11,13 +11,13 @@ pub struct InteractiveTool {
     pub steps: HashMap<String, Step>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct Step {
     pub text: String,
     pub options: Option<Vec<OptionDef>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct OptionDef {
     pub label: String,
     #[serde(rename = "next_step")]

@@ -1,50 +1,43 @@
 // framework/src/disco/interactive_tools/session.rs
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 pub struct Session {
-    pub tool_name: String,
     pub current_step: String,
-    pub user_id: String, // A unique identifier for the user
 }
 
 pub struct SessionManager {
-    sessions: Arc<Mutex<HashMap<String, Session>>>,
+    session: Arc<Mutex<Option<Session>>>,
 }
 
 impl SessionManager {
     pub fn new() -> Self {
         Self {
-            sessions: Arc::new(Mutex::new(HashMap::new())),
+            session: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn get_session(&self, user_id: &str) -> Option<Session> {
-        let sessions = self.sessions.lock().unwrap();
-        sessions.get(user_id).cloned()
+    pub fn get_session(&self) -> Option<Session> {
+        self.session.lock().unwrap().clone()
     }
 
-    pub fn create_session(&self, user_id: &str, tool_name: &str, initial_step: &str) -> Session {
-        let mut sessions = self.sessions.lock().unwrap();
-        let session = Session {
-            tool_name: tool_name.to_string(),
+    pub fn create_session(&self, initial_step: &str) -> Session {
+        let mut session_guard = self.session.lock().unwrap();
+        let new_session = Session {
             current_step: initial_step.to_string(),
-            user_id: user_id.to_string(),
         };
-        sessions.insert(user_id.to_string(), session.clone());
-        session
+        *session_guard = Some(new_session.clone());
+        new_session
     }
 
-    pub fn update_session(&self, user_id: &str, next_step: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        if let Some(session) = sessions.get_mut(user_id) {
+    pub fn update_session(&self, next_step: &str) {
+        let mut session_guard = self.session.lock().unwrap();
+        if let Some(session) = session_guard.as_mut() {
             session.current_step = next_step.to_string();
         }
     }
 
-    pub fn end_session(&self, user_id: &str) {
-        let mut sessions = self.sessions.lock().unwrap();
-        sessions.remove(user_id);
+    pub fn end_session(&self) {
+        *self.session.lock().unwrap() = None;
     }
 }

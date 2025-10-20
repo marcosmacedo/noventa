@@ -1,0 +1,22 @@
+<div>
+    <h1>Counter: {{ count }}</h1>
+    <h1>User: {{ user.name }}</h1>
+    <ul>
+        {% for item in items %}
+            <li>{{ item }}</li>
+        {% endfor %}
+    </ul>
+    <form method="post">
+        <input type="hidden" name="action" value="increment">
+        <button type="submit">Increment</button>
+    </form>
+    <form method="post">
+        <input type="hidden" name="action" value="decrement">
+        <button type="submit">Decrement</button>
+    </form>
+    <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="action" value="upload">
+        <input type="file" name="file">
+        <button type="submit">Upload</button>
+    </form>
+</div>

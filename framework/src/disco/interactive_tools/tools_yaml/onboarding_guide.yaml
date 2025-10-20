@@ -1,36 +1,67 @@
-# tools/onboarding_guide.yaml
-
 name: "onboarding_guide"
-description: "An interactive guide to help new users get started."
+description: "An interactive guide to help new Noventa developers get started. Whenever you are lost check this."
 
 initial_step: "welcome"
 
 steps:
   welcome:
-    text: "Welcome to Noventa! What would you like to do first?"
+    text: "Welcome to your Noventa web app! I'm a guide to help you understand the project structure. What would you like to learn about?"
     options:
-      - label: "Learn about the architecture."
-        next_step: "explain_architecture"
-      - label: "See a code example."
-        next_step: "show_code_example"
-      - label: "Exit the guide."
+      - label: "How do I create a new page?"
+        next_step: "explain_pages"
+      - label: "What are layouts?"
+        next_step: "explain_layouts"
+      - label: "What are components?"
+        next_step: "explain_components"
+      - label: "How does the database work?"
+        next_step: "explain_database"
+      - label: "Exit"
         next_step: "[END]"
 
-  explain_architecture:
-    text: "Noventa uses a Rust backend with Python for business logic. Would you like to know more about the frontend or the backend?"
+  explain_pages:
+    text: "Pages are the main entry points of your application. They are HTML files located in the `pages` directory. For example, you have [`pages/index.html`](web/pages/index.html) and [`pages/counter.html`](web/pages/counter.html). To create a new page, just add a new HTML file in the `pages` directory. The URL will be the filename without the extension. What else?"
     options:
-      - label: "Tell me about the frontend."
-        next_step: "explain_frontend"
-      - label: "Tell me about the backend."
-        next_step: "explain_backend"
-      - label: "Go back."
+      - label: "Back to the main menu."
         next_step: "welcome"
+      - label: "Tell me about layouts."
+        next_step: "explain_layouts"
+      - label: "Exit"
+        next_step: "[END]"
 
-  show_code_example:
-    text: "Here is a link to a code example: [link]. The session will now end."
+  explain_layouts:
+    text: "Layouts are templates that wrap your pages. They are located in the `layouts` directory. For example, [`layouts/base.html`](web/layouts/base.html) is a common layout. You can specify which layout to use in your page's frontmatter. This allows you to have a consistent look and feel across your app. What next?"
+    options:
+      - label: "Back to the main menu."
+        next_step: "welcome"
+      - label: "Tell me about components."
+        next_step: "explain_components"
+      - label: "Exit"
+        next_step: "[END]"
 
-  explain_frontend:
-    text: "The frontend is built with standard HTML, CSS, and a bit of JavaScript."
+  explain_components:
+    text: "Components are reusable pieces of UI with their own logic. They live in the `components` directory. A component has a template (`.html`), logic (`_logic.py`), and models (`_models.py`). For example, the `counter` component has [`counter_template.html`](web/components/counter/counter_template.html), [`counter_logic.py`](web/components/counter/counter_logic.py), and [`counter_models.py`](web/components/counter/counter_models.py). You can include them in your pages. What now?"
+    options:
+      - label: "How do I use a component?"
+        next_step: "explain_component_usage"
+      - label: "Back to the main menu."
+        next_step: "welcome"
+      - label: "How does the database work?"
+        next_step: "explain_database"
+      - label: "Exit"
+        next_step: "[END]"
 
-  explain_backend:
-    text: "The backend uses Actix-web in Rust and communicates with Python actors."
+  explain_component_usage:
+    text: "To use a component, you call it from a template (like a page or another component) using a special syntax: `{{ component('component_name', **props) }}`.\n\n- `component_name`: The name of the component's directory (e.g., 'counter').\n- `props`: A dictionary of data you want to pass to the component.\n\nFor example, to include the counter component and start it at 5, you would write:\n`{{ component('counter', initial_value=5) }}`"
+    options:
+      - label: "That's much clearer. Thanks!"
+        next_step: "welcome"
+      - label: "Go back."
+        next_step: "explain_components"
+
+  explain_database:
+    text: "Noventa uses Alembic for database migrations. The database configuration is in [`database/alembic.ini`](web/database/alembic.ini) and the migration scripts are in [`database/versions`](web/database/versions). You define your models in Python and use Alembic to generate and apply migrations. This keeps your database schema in sync with your code. What would you like to do now?"
+    options:
+      - label: "Back to the main menu."
+        next_step: "welcome"
+      - label: "Exit"
+        next_step: "[END]"

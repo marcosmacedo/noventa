@@ -1529,6 +1529,7 @@ dependencies = [
  "minijinja",
  "notify",
  "num_cpus",
+ "once_cell",
  "pyo3",
  "pyo3-build-config 0.22.6",
  "pythonize",
