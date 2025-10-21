@@ -342,14 +342,14 @@ impl Tool for WriteFileTool {
         let parent_path = path.parent().unwrap_or(path);
         let parent_path_str = parent_path.to_str().unwrap_or_default();
 
-        let message = if parent_path_str.contains("/components") {
+        let message = if parent_path_str.contains("components/") {
             let is_valid_component_file = path.file_name()
                 .and_then(|name| name.to_str())
                 .map(|name| name.ends_with("_logic.py") || name.ends_with("_template.html") || name.ends_with("_models.py"))
                 .unwrap_or(false);
 
             let is_in_subdirectory = parent_path
-                .strip_prefix("/components")
+                .strip_prefix("components")
                 .map(|p| p.components().count() > 0)
                 .unwrap_or(false);
 
