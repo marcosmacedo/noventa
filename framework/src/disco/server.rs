@@ -8,6 +8,7 @@ use crate::disco::models::{
     Capabilities, Content, ErrorObject, InitializeParams, InitializeResult, Request, Response,
     ServerInfo, ToolCallResult, ToolCapability, ToolDefinition, ToolsListResult,
 };
+use crate::disco::tools::ToolManager;
 
 enum ServerState {
     Uninitialized,
@@ -20,6 +21,7 @@ pub async fn run_disco_server() -> std::io::Result<()> {
     let interactive_tools = parser::load_tools().clone();
     let session_manager = SessionManager::new();
     let tool_runner = Arc::new(ToolRunner::new(interactive_tools, session_manager));
+    let tool_manager = Arc::new(ToolManager::new());
 
     let stdin = io::stdin();
     for line in stdin.lock().lines() {
@@ -75,20 +77,15 @@ pub async fn run_disco_server() -> std::io::Result<()> {
                         if let Some(id) = request.id {
                             let response = match request.method.as_str() {
                                 "tools/list" => {
-                                    let mut tools = vec![ToolDefinition {
-                                        name: "read_file".to_string(),
-                                        description: "Reads the contents of a file.".to_string(),
-                                        input_schema: serde_json::json!({
-                                            "type": "object",
-                                            "properties": {
-                                                "path": {
-                                                    "type": "string",
-                                                    "description": "The path to the file."
-                                                }
-                                            },
-                                            "required": ["path"]
-                                        }),
-                                    }];
+                                    let mut tools: Vec<ToolDefinition> = tool_manager
+                                        .get_all_tools()
+                                        .iter()
+                                        .map(|tool| ToolDefinition {
+                                            name: tool.name(),
+                                            description: tool.description(),
+                                            input_schema: tool.input_schema(),
+                                        })
+                                        .collect();
                                     let tool_runner_clone = tool_runner.clone();
                                     for tool in tool_runner_clone.tools.values() {
                                         tools.push(ToolDefinition {
@@ -121,25 +118,23 @@ pub async fn run_disco_server() -> std::io::Result<()> {
                                             .unwrap_or_default();
                                         let arguments = params.get("arguments").unwrap_or(&Value::Null);
                                         let tool_runner_clone = tool_runner.clone();
-                                        let result =
-                                            if tool_runner_clone.tools.contains_key(tool_name) {
-                                                crate::disco::tools::run_interactive_tool(
-                                                    &tool_runner_clone,
-                                                    tool_name,
-                                                    arguments,
-                                                )
-                                            } else if tool_name == "read_file" {
-                                                crate::disco::tools::read_file(arguments)
-                                            } else {
-                                                Err("Unknown tool".to_string())
-                                            };
+                                        let result = if let Some(tool) =
+                                            tool_manager.get_tool(tool_name)
+                                        {
+                                            tool.run(arguments)
+                                        } else if tool_runner_clone.tools.contains_key(tool_name) {
+                                            crate::disco::tools::run_interactive_tool(
+                                                &tool_runner_clone,
+                                                tool_name,
+                                                arguments,
+                                            )
+                                        } else {
+                                            Err("Unknown tool".to_string())
+                                        };
                                         let tool_result = match result {
                                             Ok(value) => ToolCallResult {
                                                 content: vec![Content::Text {
-                                                    text: value
-                                                        .as_str()
-                                                        .unwrap_or_default()
-                                                        .to_string(),
+                                                    text: value.to_string(),
                                                 }],
                                                 is_error: false,
                                             },

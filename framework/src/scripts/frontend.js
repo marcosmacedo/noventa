@@ -1,3 +1,5 @@
+let currentPath = window.location.pathname + window.location.search;
+
 function handleRequest(url, options, isPopState = false) {
     fetch(url, options)
         .then(response => response.text())
@@ -8,6 +10,7 @@ function handleRequest(url, options, isPopState = false) {
             morphdom(document.body, doc.body);
             if (!isPopState) {
                 window.history.pushState({}, '', url);
+                currentPath = new URL(url).pathname + new URL(url).search;
             }
         })
         .catch(error => console.error('Error fetching page:', error));
@@ -15,7 +18,17 @@ function handleRequest(url, options, isPopState = false) {
 
 document.addEventListener('click', event => {
     const anchor = event.target.closest('a');
-    if (anchor && anchor.href && anchor.target !== '_blank' && new URL(anchor.href).origin === window.location.origin) {
+    if (anchor && anchor.href && anchor.target !== '_blank') {
+        const linkUrl = new URL(anchor.href);
+        if (linkUrl.origin !== window.location.origin) {
+            return;
+        }
+
+        // If the path and search params are the same, it's a hash link. Let the browser handle it.
+        if (linkUrl.pathname === window.location.pathname && linkUrl.search === window.location.search) {
+            return;
+        }
+
         event.preventDefault();
         handleRequest(anchor.href, { method: 'GET' });
     }
@@ -42,7 +55,12 @@ document.addEventListener('submit', event => {
 });
 
 window.addEventListener('popstate', event => {
-    handleRequest(window.location.href, { method: 'GET' }, true);
+    const newPath = window.location.pathname + window.location.search;
+    // Only fetch if the path has changed, ignoring hash changes.
+    if (newPath !== currentPath) {
+        currentPath = newPath;
+        handleRequest(window.location.href, { method: 'GET' }, true);
+    }
 });
 
 console.log("Frontend script loaded and active.");

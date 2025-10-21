@@ -21,7 +21,6 @@ use actors::interpreter::PythonInterpreterActor;
 use actors::load_shedding::LoadSheddingActor;
 use actors::page_renderer::PageRendererActor;
 use actors::template_renderer::TemplateRendererActor;
-use actors::component_renderer::ComponentRendererActor;
 use actors::dev_websockets::DevWebSocket;
 use actors::file_watcher::FileWatcherActor;
 use actors::router::RouterActor;
@@ -167,15 +166,13 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         PythonInterpreterActor::new(components_clone.clone(), dev_mode)
     });
 
-    // ComponentRendererActor is a lightweight coordinator, so it runs as a regular async actor.
-    let component_renderer_addr = ComponentRendererActor::new(interpreters_addr.clone(), health_actor_addr.clone()).start();
-
     // TemplateRendererActor is also CPU-bound and runs in its own SyncArbiter.
     let value = health_actor_addr.clone();
     let components_clone_for_template_renderer = components.clone();
+    let interpreters_addr_clone = interpreters_addr.clone();
     let template_renderer_addr = SyncArbiter::start(template_renderer_threads, move || {
         TemplateRendererActor::new(
-            component_renderer_addr.clone(),
+            interpreters_addr_clone.clone(),
             value.clone(),
             dev_mode,
             components_clone_for_template_renderer.clone(),
