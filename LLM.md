@@ -296,3 +296,50 @@ The framework supports serving static files (e.g., CSS, JavaScript, images) from
     <script src="/files/main.js"></script>
     <img src="/files/logo.png" alt="Logo">
     ```
+
+## File System Tools
+
+The framework provides a suite of interactive tools for managing files and directories within your project. These tools are designed with contextual awareness of the Noventa project structure, providing helpful feedback and warnings to ensure that files are created in the correct locations.
+
+All file system tools include a critical security check that prevents any operations outside the current working directory, ensuring the safety and integrity of your system.
+
+### `read_file`
+
+Reads the contents of a file and provides contextual metadata based on its location and naming convention.
+
+- **Component Files**: Identifies component logic, templates, and models and indicates which component they belong to.
+- **Page Templates**: For `.html` files in the `web/pages` directory, it displays the browser route that the page will generate.
+- **Layouts**: Identifies Jinja2 layouts in the `web/layouts` directory.
+
+### `list_directory`
+
+Lists the contents of a directory in a clean, tabular format with `Path` and `Type` columns.
+
+- **Relative Paths**: All paths are displayed relative to the queried directory.
+- **Contextual Types**: The `Type` column provides specific information for Noventa file types (e.g., "Component Logic", "Page Template", "Layout").
+
+### `create_directory`
+
+Creates a new directory and provides a descriptive success message that indicates where the directory was created, with special contextual information for Noventa's special directories.
+
+### `write_file`
+
+Writes content to a file, automatically creating any necessary parent directories. This tool is context-aware and provides helpful warnings to enforce the project's structure.
+
+- **Automatic Directory Creation**: If any parent directories in the path do not exist, they will be created automatically.
+- **Contextual Warnings**:
+    - **Component Files**: If you write a component file (e.g., `_logic.py`) outside the `web/components` directory, it will issue a warning and suggest the correct location. It also validates that component files are placed within a subdirectory of `web/components` and follow the correct naming conventions.
+    - **HTML Files**: If you write an `.html` file outside of the `web/pages` or `web/layouts` directories, it will provide a warning suggesting the correct placement for pages or layouts.
+
+### `delete_directory`
+
+Recursively deletes a directory and its contents. This tool includes important safeguards to prevent accidental deletion of critical project directories.
+
+- **Protected Directories**: It is impossible to delete the `web/components`, `web/pages`, or `web/layouts` directories.
+- **Security**: This tool cannot delete directories outside the current working directory.
+
+### `delete_file`
+
+Deletes a single file.
+
+- **Security**: This tool cannot delete files outside the current working directory.
