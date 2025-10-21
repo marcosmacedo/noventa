@@ -1,15 +1,16 @@
-use crate::actors::component_renderer::{ComponentRendererActor, HandleRender};
-use crate::actors::health::{HealthActor, ReportTemplateLatency};
+use crate::actors::health::{HealthActor, ReportTemplateLatency, ReportPythonLatency};
+use crate::actors::interpreter::{ExecutePythonFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use crate::components::Component;
 use actix::prelude::*;
-use minijinja::{Environment, Error, State, value::Kwargs};
+use minijinja::{Environment, Error, State, value::Kwargs, Value};
 use std::sync::Arc;
+use std::collections::HashMap;
 
 // Actor for rendering templates
 pub struct TemplateRendererActor {
     env: Arc<Environment<'static>>,
-    component_renderer: Addr<ComponentRendererActor>,
+    interpreter: Addr<PythonInterpreterActor>,
     health_actor: Addr<HealthActor>,
     dev_mode: bool,
     components: Vec<Component>,
@@ -17,7 +18,7 @@ pub struct TemplateRendererActor {
 
 impl TemplateRendererActor {
     pub fn new(
-        component_renderer: Addr<ComponentRendererActor>,
+        interpreter: Addr<PythonInterpreterActor>,
         health_actor: Addr<HealthActor>,
         dev_mode: bool,
         components: Vec<Component>,
@@ -27,7 +28,7 @@ impl TemplateRendererActor {
 
         Self {
             env: Arc::new(env),
-            component_renderer,
+            interpreter,
             health_actor,
             dev_mode,
             components,
@@ -75,67 +76,83 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             env.set_loader(minijinja::path_loader("."));
         }
 
-        let component_renderer_clone = self.component_renderer.clone();
-        let _health_actor_clone = self.health_actor.clone();
+        let interpreter_clone = self.interpreter.clone();
+        let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
         let components_clone = self.components.clone();
 
         env.add_function(
             "component",
-            move |state: &State, name: String, kwargs: Kwargs| -> Result<minijinja::Value, Error> {
-                let component_renderer_clone = component_renderer_clone.clone();
-                let request_info_clone = request_info_clone.clone();
-                let components_clone = components_clone.clone();
-
-                let kwargs_map: std::collections::HashMap<String, minijinja::Value> = kwargs
+            move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, Error> {
+                let kwargs_map: HashMap<String, Value> = kwargs
                     .args()
-                    .filter_map(|k| {
-                        kwargs
-                            .get::<minijinja::Value>(k)
-                            .ok()
-                            .map(|v| (k.to_string(), v))
-                    })
+                    .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let handle_render_msg = HandleRender {
-                    name: name.clone(),
-                    req: request_info_clone,
-                    kwargs: Some(kwargs_map),
-                };
+                let execute_fn_msg = if request_info_clone.method == "GET" {
+                    ExecutePythonFunction {
+                        component_name: name.clone(),
+                        function_name: "load_template_context".to_string(),
+                        request: request_info_clone.clone(),
+                        args: Some(kwargs_map),
+                    }
+                } else {
+                    let form_data: HashMap<String, String> =
+                        serde_json::from_value(serde_json::Value::Object(request_info_clone.form_data.clone())).unwrap();
+                    let action = form_data.get("action").cloned().unwrap_or_default();
 
-                let fut = async move {
-                    match component_renderer_clone.send(handle_render_msg).await {
-                        Ok(Ok(context)) => {
-                            let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
-                                Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
-                            })?;
-                            let mut template_path = component.template_path.clone();
-                            if template_path.starts_with("./") {
-                                template_path = template_path[2..].to_string();
-                            }
+                    if action.is_empty() {
+                        return Err(Error::new(
+                            minijinja::ErrorKind::InvalidOperation,
+                            "Action is required for POST requests",
+                        ));
+                    }
 
-                            let tmpl = state.env().get_template(&template_path)?;
-                            let result = tmpl.render(context)?;
-                            Ok(minijinja::Value::from_safe_string(result))
-                        }
-                        Ok(Err(e)) => {
-                            log::error!("Error rendering component: {}", e);
-                            Err(Error::new(
-                                minijinja::ErrorKind::InvalidOperation,
-                                "Failed to get component context",
-                            ))
-                        }
-                        Err(e) => {
-                            log::error!("Mailbox error: {}", e);
-                            Err(Error::new(
-                                minijinja::ErrorKind::InvalidOperation,
-                                "Failed to get component context",
-                            ))
-                        }
+                    let mut form_data_value = HashMap::new();
+                    for (k, v) in form_data {
+                        form_data_value.insert(k.clone(), Value::from(v.clone()));
+                    }
+
+                    let mut kwargs_map_post = kwargs_map.clone();
+                    kwargs_map_post.extend(form_data_value);
+
+                    ExecutePythonFunction {
+                        component_name: name.clone(),
+                        function_name: format!("action_{}", action),
+                        request: request_info_clone.clone(),
+                        args: Some(kwargs_map_post),
                     }
                 };
 
-                futures::executor::block_on(fut)
+                let python_start_time = std::time::Instant::now();
+                let future = interpreter_clone.send(execute_fn_msg);
+                let result = futures::executor::block_on(future);
+                let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
+                health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
+
+                match result {
+                    Ok(Ok(context)) => {
+                        let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                            Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
+                        })?;
+                        let mut template_path = component.template_path.clone();
+                        if template_path.starts_with("./") {
+                            template_path = template_path[2..].to_string();
+                        }
+
+                        let tmpl = state.env().get_template(&template_path)?;
+                        let result = tmpl.render(context)?;
+                        Ok(Value::from_safe_string(result))
+                    }
+                    Ok(Err(e)) => {
+                        log::error!("Error executing python function: {}", e);
+                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                    }
+                    Err(e) => {
+                        log::error!("Mailbox error: {}", e);
+                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                    }
+                }
             },
         );
 
@@ -143,9 +160,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         let start_time = std::time::Instant::now();
         let mut result = tmpl.render(minijinja::context! {})?;
         let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
-        self.health_actor
-            .do_send(ReportTemplateLatency(duration_ms));
-
+        self.health_actor.do_send(ReportTemplateLatency(duration_ms));
 
         const MDOM_SCRIPT_CONTENT: &str = include_str!("../scripts/morphdom-umd.min.js");
         if let Some(body_end_pos) = result.rfind("</body>") {
@@ -158,8 +173,6 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             let script_tag = format!("<script>{}</script>\n", SCRIPT_CONTENT);
             result.insert_str(body_end_pos, &script_tag);
         }
-
-        
 
         if self.dev_mode {
             const DEV_SCRIPT_CONTENT: &str = include_str!("../scripts/devws.js");
