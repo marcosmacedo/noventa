@@ -6,8 +6,8 @@ function handleRequest(url, options, isPopState = false) {
         .then(html => {
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            morphdom(document.head, doc.head);
-            morphdom(document.body, doc.body);
+            Idiomorph.morph(document.head, doc.head);
+            Idiomorph.morph(document.body, doc.body);
             if (!isPopState) {
                 window.history.pushState({}, '', url);
                 currentPath = new URL(url).pathname + new URL(url).search;

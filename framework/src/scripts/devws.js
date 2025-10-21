@@ -18,8 +18,8 @@ socket.onmessage = function(event) {
             .then(html => {
                 const parser = new DOMParser();
                 const doc = parser.parseFromString(html, 'text/html');
-                morphdom(document.head, doc.head);
-                morphdom(document.body, doc.body);
+                Idiomorph.morph(document.head, doc.head);
+                Idiomorph.morph(document.body, doc.body);
             })
             .catch(error => console.error('Error fetching page for reload:', error));
     }
