@@ -162,7 +162,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
         self.health_actor.do_send(ReportTemplateLatency(duration_ms));
 
-        const MDOM_SCRIPT_CONTENT: &str = include_str!("../scripts/morphdom-umd.min.js");
+        const MDOM_SCRIPT_CONTENT: &str = include_str!("../scripts/idiomorph.js");
         if let Some(body_end_pos) = result.rfind("</body>") {
             let script_tag = format!("<script>{}</script>\n", MDOM_SCRIPT_CONTENT);
             result.insert_str(body_end_pos, &script_tag);
