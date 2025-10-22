@@ -67,8 +67,17 @@ fn diff_nodes(old_node: &Node, new_node: &Node, parent_id: Option<u64>, patches:
             }
         }
         _ => {
-            // Node types differ, replace the old node with the new one.
-            // This requires getting the ID of the old node, which is tricky if it's not an element.
+            // Node types differ, so we replace the old node with the new one.
+            let old_node_id = match old_node {
+                Node::Element(el) => el.id,
+                Node::Text(_) | Node::Comment(_) => {
+                    parent_id.expect("Text or Comment node must have a parent to be replaced")
+                }
+            };
+            patches.push(Patch::ReplaceNode {
+                node_id: old_node_id,
+                new_node: new_node.clone(),
+            });
         }
     }
 }

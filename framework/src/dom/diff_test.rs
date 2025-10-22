@@ -162,4 +162,59 @@ mod tests {
         let patches = diff::diff(&old_dom, &new_dom);
         assert!(patches.iter().any(|p| matches!(p, diff::Patch::SetAttribute { name, .. } if name == "class")), "expected SetAttribute for class change");
     }
+
+    #[test]
+    fn test_diff_remove_node() {
+        let old_html = "<html><body><div><p>Hello</p></div><span></span></body></html>";
+        let new_html = "<html><body><span></span></body></html>";
+
+        let old_dom = parser::parse(old_html).unwrap();
+        let new_dom = parser::parse(new_html).unwrap();
+
+        let patches = diff::diff(&old_dom, &new_dom);
+
+        assert!(patches.iter().any(|p| matches!(p, diff::Patch::RemoveChild { .. })), "expected RemoveChild patch");
+    }
+
+    #[test]
+    fn test_diff_remove_multiple_nodes() {
+        let old_html = "<html><body><div><p>1</p><p>2</p><p>3</p></div></body></html>";
+        let new_html = "<html><body><div><p>2</p></div></body></html>";
+
+        let old_dom = parser::parse(old_html).unwrap();
+        let new_dom = parser::parse(new_html).unwrap();
+
+        let patches = diff::diff(&old_dom, &new_dom);
+        let remove_patches = patches.iter().filter(|p| matches!(p, diff::Patch::RemoveChild { .. })).count();
+
+        assert_eq!(remove_patches, 2, "expected two RemoveChild patches");
+    }
+
+    #[test]
+    fn test_diff_replace_text_with_element() {
+        let old_html = "<html><body><p>Just text</p></body></html>";
+        let new_html = "<html><body><p><span>Now an element</span></p></body></html>";
+
+        let old_dom = parser::parse(old_html).unwrap();
+        let new_dom = parser::parse(new_html).unwrap();
+
+        let patches = diff::diff(&old_dom, &new_dom);
+
+        assert!(patches.iter().any(|p| matches!(p, diff::Patch::ReplaceNode { .. })), "expected ReplaceNode patch for text->element change");
+    }
+
+    #[test]
+    fn test_diff_add_and_remove_attributes() {
+        let old_html = "<html><body><div id=\"a\" class=\"b\"></div></body></html>";
+        let new_html = "<html><body><div class=\"c\" data-x=\"y\"></div></body></html>";
+
+        let old_dom = parser::parse(old_html).unwrap();
+        let new_dom = parser::parse(new_html).unwrap();
+
+        let patches = diff::diff(&old_dom, &new_dom);
+
+        assert!(patches.iter().any(|p| matches!(p, diff::Patch::RemoveAttribute { name, .. } if name == "id")), "expected RemoveAttribute for id");
+        assert!(patches.iter().any(|p| matches!(p, diff::Patch::SetAttribute { name, value, .. } if name == "class" && value == "c")), "expected SetAttribute for class");
+        assert!(patches.iter().any(|p| matches!(p, diff::Patch::SetAttribute { name, value, .. } if name == "data-x" && value == "y")), "expected SetAttribute for data-x");
+    }
 }
