@@ -231,6 +231,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         app
     })
     .workers(actix_web_threads) // Set the number of web server worker threads.
+    .keep_alive(std::time::Duration::from_secs(30))
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
