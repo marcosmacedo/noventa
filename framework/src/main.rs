@@ -208,6 +208,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     HttpServer::new(move || {
         let mut app = App::new()
+            .wrap(actix_web::middleware::Compress::default())
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(router_addr.clone()))

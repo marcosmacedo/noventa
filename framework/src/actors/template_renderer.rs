@@ -6,6 +6,7 @@ use actix::prelude::*;
 use minijinja::{Environment, Error, State, value::Kwargs, Value};
 use std::sync::Arc;
 use std::collections::HashMap;
+use regex::Regex;
 
 // Actor for rendering templates
 pub struct TemplateRendererActor {
@@ -81,6 +82,14 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         let request_info_clone = msg.request_info.clone();
         let components_clone = self.components.clone();
 
+        let form_component_id = if request_info_clone.method == "POST" {
+            let form_data: HashMap<String, String> =
+                serde_json::from_value(serde_json::Value::Object(request_info_clone.form_data.clone())).unwrap();
+            form_data.get("component_id").cloned().unwrap_or_default()
+        } else {
+            String::new()
+        };
+
         env.add_function(
             "component",
             move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, Error> {
@@ -89,38 +98,42 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let execute_fn_msg = if request_info_clone.method == "GET" {
-                    ExecutePythonFunction {
-                        component_name: name.clone(),
-                        function_name: "load_template_context".to_string(),
-                        request: request_info_clone.clone(),
-                        args: Some(kwargs_map),
-                    }
-                } else {
+                let component_id = &name;
+
+                let execute_fn_msg = if request_info_clone.method == "POST" && &form_component_id == component_id {
                     let form_data: HashMap<String, String> =
                         serde_json::from_value(serde_json::Value::Object(request_info_clone.form_data.clone())).unwrap();
                     let action = form_data.get("action").cloned().unwrap_or_default();
 
                     if action.is_empty() {
-                        return Err(Error::new(
-                            minijinja::ErrorKind::InvalidOperation,
-                            "Action is required for POST requests",
-                        ));
+                         ExecutePythonFunction {
+                            component_name: name.clone(),
+                            function_name: "load_template_context".to_string(),
+                            request: request_info_clone.clone(),
+                            args: Some(kwargs_map),
+                        }
+                    } else {
+                        let mut form_data_value = HashMap::new();
+                        for (k, v) in form_data {
+                            form_data_value.insert(k.clone(), Value::from(v.clone()));
+                        }
+
+                        let mut kwargs_map_post = kwargs_map.clone();
+                        kwargs_map_post.extend(form_data_value);
+
+                        ExecutePythonFunction {
+                            component_name: name.clone(),
+                            function_name: format!("action_{}", action),
+                            request: request_info_clone.clone(),
+                            args: Some(kwargs_map_post),
+                        }
                     }
-
-                    let mut form_data_value = HashMap::new();
-                    for (k, v) in form_data {
-                        form_data_value.insert(k.clone(), Value::from(v.clone()));
-                    }
-
-                    let mut kwargs_map_post = kwargs_map.clone();
-                    kwargs_map_post.extend(form_data_value);
-
+                } else {
                     ExecutePythonFunction {
                         component_name: name.clone(),
-                        function_name: format!("action_{}", action),
+                        function_name: "load_template_context".to_string(),
                         request: request_info_clone.clone(),
-                        args: Some(kwargs_map_post),
+                        args: Some(kwargs_map),
                     }
                 };
 
@@ -141,7 +154,12 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                         }
 
                         let tmpl = state.env().get_template(&template_path)?;
-                        let result = tmpl.render(context)?;
+                        let mut result = tmpl.render(context)?;
+
+                        let re = Regex::new(r"(<form[^>]*>)").unwrap();
+                        let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
+                        result = re.replace_all(&result, replacement).to_string();
+
                         Ok(Value::from_safe_string(result))
                     }
                     Ok(Err(e)) => {
