@@ -7,6 +7,10 @@ use minijinja::{Environment, Error, State, value::Kwargs, Value};
 use std::sync::Arc;
 use std::collections::HashMap;
 use regex::Regex;
+use once_cell::sync::Lazy;
+
+static FORM_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(<form[^>]*>)").unwrap());
+static COMPONENT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\{\{\s*component\s*\(([^)]+)\)\s*\}\}").unwrap());
 
 // Actor for rendering templates
 pub struct TemplateRendererActor {
@@ -157,8 +161,7 @@ impl TemplateRendererActor {
     // This builds a complete tree of all components on a page and their arguments,
     // without executing any of them.
     fn recursive_scan(&self, template_content: &str, calls: &mut Vec<ComponentCall>) -> Result<(), Error> {
-        let re = Regex::new(r"\{\{\s*component\s*\(([^)]+)\)\s*\}\}").unwrap();
-        for cap in re.captures_iter(template_content) {
+        for cap in COMPONENT_REGEX.captures_iter(template_content) {
             let args_str = &cap[1];
             // Manual parsing of arguments from the template string.
             let mut parts = args_str.split(',');
@@ -195,29 +198,15 @@ impl TemplateRendererActor {
         let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
         self.health_actor.do_send(ReportTemplateLatency(duration_ms));
 
-        const MDOM_SCRIPT_CONTENT: &str = include_str!("../scripts/morphdom-2.6.1-umd.min.js");
         if let Some(body_end_pos) = result.rfind("</body>") {
-            let script_tag = format!("<script>{}</script>\n", MDOM_SCRIPT_CONTENT);
-            result.insert_str(body_end_pos, &script_tag);
-        }
-
-        const SCRIPT_CONTENT: &str = include_str!("../scripts/frontend.js");
-        if let Some(body_end_pos) = result.rfind("</body>") {
-            let script_tag = format!("<script>{}</script>\n", SCRIPT_CONTENT);
-            result.insert_str(body_end_pos, &script_tag);
-        }
-
-        if self.dev_mode {
-            const DEV_SCRIPT_CONTENT: &str = include_str!("../scripts/devws.js");
-            if let Some(body_end_pos) = result.rfind("</body>") {
-                let script_tag = format!("<script>{}</script>\n", DEV_SCRIPT_CONTENT);
-                result.insert_str(body_end_pos, &script_tag);
+            let mut scripts = String::new();
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/morphdom-2.6.1-umd.min.js")));
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/frontend.js")));
+            if self.dev_mode {
+                scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
             }
-        }
-
-        if let Some(body_end_pos) = result.rfind("</body>") {
-            let script_tag = "<script src=\"https://cdn.jsdelivr.net/npm/@unocss/runtime/uno.global.js\"></script>";
-            result.insert_str(body_end_pos, &script_tag);
+            scripts.push_str("<script src=\"https://cdn.jsdelivr.net/npm/@unocss/runtime/uno.global.js\"></script>");
+            result.insert_str(body_end_pos, &scripts);
         }
 
         Ok(result)
@@ -260,9 +249,6 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
     type Result = Result<String, Error>;
 
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
-        // Delegate to the appropriate handler based on the request method.
-        // POST requests require the complex "Scan, Act & Cache, then Render" logic
-        // to handle state changes correctly. GET requests use a simpler, direct render.
         if msg.request_info.method == "POST" {
             return self.handle_post_request(msg);
         }
@@ -310,9 +296,8 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                         let tmpl = state.env().get_template(&template_path)?;
                         let mut result = tmpl.render(context)?;
 
-                        let re = Regex::new(r"(<form[^>]*>)").unwrap();
                         let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
-                        result = re.replace_all(&result, replacement).to_string();
+                        result = FORM_REGEX.replace_all(&result, replacement).to_string();
 
                         Ok(Value::from_safe_string(result))
                     }
