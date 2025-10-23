@@ -11,6 +11,7 @@ actix-web-actors = "4.3.0"
 actix-files = "0.6.2"
 pyo3 = { version = "0.26.0", features = ["auto-initialize", "multiple-pymethods"] }
 pythonize = "0.26.0"
+serde-pyobject = "0.7.0"
 log = "0.4"
 env_logger = "0.11.3"
 minijinja = { version = "2.2.0", features = ["loader", "json", "builtins"] }

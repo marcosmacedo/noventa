@@ -1,6 +1,7 @@
 use crate::actors::page_renderer::{FileData, HttpRequestInfo};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use serde_pyobject::to_pyobject;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -109,7 +110,7 @@ impl PyRequest {
     fn form(&self, py: Python) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
         for (key, value) in &self.inner.form_data {
-            dict.set_item(key, value.to_string())?;
+            dict.set_item(key, to_pyobject(py, value)?)?;
         }
         Ok(dict.into())
     }

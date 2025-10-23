@@ -66,7 +66,6 @@ impl Actor for PythonInterpreterActor {
 
     fn started(&mut self, _ctx: &mut Self::Context) {
         Python::attach(|py| {
-            // 1️⃣ Add the 'web' folder to sys.path
             let sys = py.import("sys").unwrap();
             let path = sys.getattr("path").unwrap();
             path.call_method1("insert", (0, ".")).unwrap();
