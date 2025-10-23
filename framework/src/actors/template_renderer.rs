@@ -77,6 +77,7 @@ impl TemplateRendererActor {
                     function_name: format!("action_{}", action),
                     request: msg.request_info.clone(),
                     args: Some(kwargs_map_post),
+                    session: msg.session.clone(),
                 };
 
                 let result = futures::executor::block_on(self.interpreter.send(execute_fn_msg));
@@ -121,6 +122,7 @@ impl TemplateRendererActor {
                         function_name: "load_template_context".to_string(),
                         request: request_info_clone.clone(),
                         args: Some(kwargs_map),
+                        session: msg.session.clone(),
                     };
 
                     let python_start_time = std::time::Instant::now();
@@ -277,6 +279,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     function_name: "load_template_context".to_string(),
                     request: request_info_clone.clone(),
                     args: Some(kwargs_map),
+                    session: msg.session.clone(),
                 };
 
                 let python_start_time = std::time::Instant::now();
