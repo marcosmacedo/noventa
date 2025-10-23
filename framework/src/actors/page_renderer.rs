@@ -1,4 +1,5 @@
 use crate::actors::health::{HealthActor, ReportTemplateLatency};
+use crate::actors::session_manager::SessionManagerActor;
 use crate::actors::template_renderer::{RenderTemplate, TemplateRendererActor};
 use actix::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -91,7 +92,7 @@ impl Actor for PageRendererActor {
 pub struct RenderMessage {
     pub template_path: String,
     pub request_info: Arc<HttpRequestInfo>,
-    pub session: HashMap<String, String>,
+    pub session_manager: Addr<SessionManagerActor>,
 }
 
 impl Handler<RenderMessage> for PageRendererActor {
@@ -104,7 +105,7 @@ impl Handler<RenderMessage> for PageRendererActor {
             let render_msg = RenderTemplate {
                 template_name: msg.template_path,
                 request_info: msg.request_info.clone(),
-                session: msg.session,
+                session_manager: msg.session_manager,
             };
 
             let start_time = std::time::Instant::now();

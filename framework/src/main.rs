@@ -220,15 +220,13 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         };
         (store, secret_key)
     } else {
-        // Default fallback
-        let secret_key = Key::from(&[0u8; 64]);
+        // Default fallback if no session config is provided
+        let secret_key = Key::from(&[0u8; 64]); // Use a secure, random key in production
         let store = session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()));
         (store, secret_key)
     };
 
     HttpServer::new(move || {
-        // Build the app with all routes and data first. This avoids type
-        // mismatch when conditionally wrapping with middleware later.
         let mut app = App::new()
             .wrap(actix_web::middleware::Compress::default())
             .app_data(renderer_data.clone())
@@ -251,17 +249,21 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
         app = app.default_service(web::route().to(routing::dynamic_route_handler));
 
-        // Now optionally wrap with session middleware. We box the final App so
-        // both wrapped and unwrapped variants have the same return type from the
-        // closure (Box<dyn ServiceFactory<...>>).
-        // Always wrap with the prepared runtime_store and runtime_secret. This
-        // keeps the app's concrete type stable while honoring configuration.
+        // Always wrap with the session middleware using the runtime-configured store.
         app.wrap(
             SessionMiddleware::builder(runtime_store.clone(), runtime_secret.clone())
-                .cookie_name(config::CONFIG.session.as_ref().map(|s| s.cookie_name.clone()).unwrap_or_else(|| "noventa_session".to_string()))
+                .cookie_name(
+                    config::CONFIG.session.as_ref()
+                        .map(|s| s.cookie_name.clone())
+                        .unwrap_or_else(|| "noventa_session".to_string()),
+                )
                 .cookie_secure(config::CONFIG.session.as_ref().map(|s| s.cookie_secure).unwrap_or(false))
                 .cookie_http_only(config::CONFIG.session.as_ref().map(|s| s.cookie_http_only).unwrap_or(true))
-                .cookie_path(config::CONFIG.session.as_ref().map(|s| s.cookie_path.clone()).unwrap_or_else(|| "/".to_string()))
+                .cookie_path(
+                    config::CONFIG.session.as_ref()
+                        .map(|s| s.cookie_path.clone())
+                        .unwrap_or_else(|| "/".to_string()),
+                )
                 .cookie_same_site(SameSite::Lax)
                 .build(),
         )
