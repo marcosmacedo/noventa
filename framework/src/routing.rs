@@ -72,12 +72,12 @@ fn path_to_route(path: &Path, base_dir: &Path) -> String {
             if segment.ends_with(".html") {
                 let stem = segment.strip_suffix(".html").unwrap();
                 if stem != "index" {
-                    Some(stem.to_string())
+                    Some(stem.replace('_', "-"))
                 } else {
                     None
                 }
             } else {
-                Some(segment)
+                Some(segment.replace('_', "-"))
             }
         })
         .collect();

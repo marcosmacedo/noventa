@@ -7,6 +7,7 @@ def initialize_database(db_url):
     """
     if not db_url:
         return None
+    print(f"Connecting to database at {db_url}")
     engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
     return Session()
