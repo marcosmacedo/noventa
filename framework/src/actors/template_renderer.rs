@@ -1,5 +1,5 @@
 use crate::actors::health::{HealthActor, ReportTemplateLatency, ReportPythonLatency};
-use crate::actors::interpreter::{ExecutePythonFunction, PythonFunctionResult, PythonInterpreterActor};
+use crate::actors::interpreter::{ExecutePythonFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;

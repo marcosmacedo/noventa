@@ -211,7 +211,7 @@ impl Tool for ListDirectoryTool {
             }
             result.push('\n');
             if r_idx == 0 {
-                for (c_idx, width) in col_widths.iter().enumerate() {
+                for (_c_idx, width) in col_widths.iter().enumerate() {
                     result.push_str(&"-".repeat(*width + 2));
                 }
                 result.push('\n');
