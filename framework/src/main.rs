@@ -1,5 +1,6 @@
 use actix::prelude::*;
 use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}};
+use actix_session::config::PersistentSession;
 use actix_session::{
     storage::{CookieSessionStore, RedisSessionStore},
     SessionMiddleware,
@@ -7,7 +8,6 @@ use actix_session::{
 use actix_web_actors::ws;
 use deadpool_redis::{Config, Runtime};
 use actix_files::Files;
-use env_logger::builder;
 use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
 use std::process::Command;
@@ -288,6 +288,17 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
                         .unwrap_or_else(|| "/".to_string()),
                 )
                 .cookie_same_site(SameSite::Lax)
+                .cookie_domain(
+                    config::CONFIG.session.as_ref()
+                        .and_then(|s| s.cookie_domain.clone())
+                )
+                .session_lifecycle(
+                    PersistentSession::default().session_ttl(
+                        config::CONFIG.session.as_ref()
+                            .and_then(|s| s.cookie_max_age.map(actix_web::cookie::time::Duration::seconds))
+                            .unwrap_or(actix_web::cookie::time::Duration::days(7))
+                    )
+                )
                 .build(),
         )
     })

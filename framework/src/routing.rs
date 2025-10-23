@@ -130,7 +130,7 @@ fn build_http_request_info(
     form_data: serde_json::Map<String, serde_json::Value>,
     files: HashMap<String, crate::actors::page_renderer::FilePart>,
     path_params: HashMap<String, String>,
-    session: &Session,
+    _session: &Session,
 ) -> HttpRequestInfo {
     let headers = req
         .headers()

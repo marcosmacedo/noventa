@@ -71,11 +71,6 @@ pub enum RuntimeSessionStore {
     Redis(RedisSessionStore),
 }
 
-impl RuntimeSessionStore {
-    pub fn new_inmemory() -> Self {
-        RuntimeSessionStore::InMemory(InMemoryBackend::new())
-    }
-}
 
 impl SessionStore for RuntimeSessionStore {
     async fn load(&self, session_key: &SessionKey) -> Result<Option<HashMap<String, String>>, LoadError> {
