@@ -13,13 +13,22 @@ use std::path::Path;
 use std::sync::Arc;
 
 // Define the message for rendering a component
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PythonFunctionResult {
+    pub context: Value,
+    pub session: HashMap<String, String>,
+}
+
 #[derive(Message, Clone)]
-#[rtype(result = "Result<Value, Error>")]
+#[rtype(result = "Result<PythonFunctionResult, Error>")]
 pub struct ExecutePythonFunction {
     pub component_name: String,
     pub function_name: String,
     pub request: Arc<HttpRequestInfo>,
     pub args: Option<HashMap<String, Value>>,
+    pub session: HashMap<String, String>,
 }
 
 use uuid::Uuid;
@@ -126,7 +135,7 @@ impl Actor for PythonInterpreterActor {
 
 // Define the handler for the ExecutePythonFunction message
 impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
-    type Result = Result<Value, Error>;
+    type Result = Result<PythonFunctionResult, Error>;
 
     fn handle(&mut self, msg: ExecutePythonFunction, _ctx: &mut Self::Context) -> Self::Result {
         log::info!(
@@ -181,6 +190,8 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
                 .map_err(|e| pyerr_to_io_error(e, py))?;
 
             let py_request = Py::new(py, PyRequest { inner: msg.request }).unwrap();
+            let py_session_obj = Py::new(py, crate::dto::python_session::PySession::new(msg.session)).unwrap();
+            let py_session = py_session_obj.clone_ref(py);
             let py_args = PyDict::new(py);
             if let Some(args) = msg.args {
                 for (key, value) in args {
@@ -192,13 +203,14 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
                 }
             }
 
-            if let Some(db) = &self.db_instance {
-                py_args
-                    .set_item("db", db.as_ref())
-                    .map_err(|e| pyerr_to_io_error(e, py))?;
-            }
-
-            let args = (py_request,);
+            let args = if let Some(db) = &self.db_instance {
+                (py_request, py_session_obj, db.clone_ref(py).into())
+            } else {
+                // This branch should ideally not be taken if db is always expected.
+                // Consider how to handle the absence of a db instance.
+                // For now, we'll pass PyNone.
+                (py_request, py_session_obj, py.None())
+            };
             let result = func.call(py, args, Some(&py_args));
 
             let result = result.map_err(|e| pyerr_to_io_error(e, py))?;
@@ -208,7 +220,12 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
                 .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
             let value = Value::from_serialize(&serde_value);
 
-            Ok(value)
+            let final_session_state = py_session.borrow(py).get_session_state();
+
+            Ok(PythonFunctionResult {
+                context: value,
+                session: final_session_state,
+            })
         })
     }
 }
