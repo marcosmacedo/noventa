@@ -3,6 +3,18 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
+use path_clean::PathClean;
+
+fn is_path_safe(path: &std::path::Path) -> Result<bool, String> {
+    let current_dir = std::env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?;
+    let absolute_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        current_dir.join(path)
+    };
+    let cleaned_path = absolute_path.clean();
+    Ok(cleaned_path.starts_with(&current_dir))
+}
 
 pub trait Tool: Send + Sync {
     fn name(&self) -> String;
@@ -42,6 +54,11 @@ impl Tool for ReadFileTool {
             .ok_or("Missing or invalid 'path' argument".to_string())?;
 
         let path = std::path::Path::new(path_str);
+
+        if !is_path_safe(path)? {
+            return Err("Error: Access to paths outside the current working directory is not allowed.".to_string());
+        }
+
         let contents = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
@@ -168,6 +185,11 @@ impl Tool for ListDirectoryTool {
             .ok_or("Missing or invalid 'path' argument".to_string())?;
 
         let base_path = std::path::Path::new(path_str);
+
+        if !is_path_safe(base_path)? {
+            return Err("Error: Access to paths outside the current working directory is not allowed.".to_string());
+        }
+
         let entries = fs::read_dir(base_path)
             .map_err(|e| format!("Failed to read directory: {}", e))?;
 
@@ -253,6 +275,11 @@ impl Tool for CreateDirectoryTool {
             .ok_or("Missing or invalid 'path' argument".to_string())?;
 
         let path = std::path::Path::new(path_str);
+
+        if !is_path_safe(path)? {
+            return Err("Error: Access to paths outside the current working directory is not allowed.".to_string());
+        }
+
         fs::create_dir_all(path)
             .map_err(|e| format!("Failed to create directory: {}", e))?;
 
@@ -317,16 +344,7 @@ impl Tool for WriteFileTool {
 
         let path = std::path::Path::new(path_str);
 
-        // Security check: Ensure the path is within the current working directory.
-        let current_dir = std::env::current_dir().map_err(|e| format!("Failed to get current directory: {}", e))?;
-        let absolute_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            current_dir.join(path)
-        };
-        let absolute_path = absolute_path.canonicalize().unwrap_or(absolute_path);
-
-        if !absolute_path.starts_with(&current_dir) {
+        if !is_path_safe(path)? {
             return Err("Error: Writing to paths outside the current working directory is not allowed.".to_string());
         }
 

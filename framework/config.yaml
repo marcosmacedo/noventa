@@ -1,5 +1,11 @@
 # File uploading options
 
+# Path to the static files directory. Can be relative or absolute.
+# If commented out or not present, static file serving will be disabled.
+static_path: "./files"
+
+# The URL prefix for static files. Defaults to "/static" if not specified.
+static_url_prefix: "/files"
 # Maximum size in bytes for in-memory file uploads and are deleted after request is completed.
 # Files larger than this will be streamed to a temporary file on disk.
 # Default is 10 MB.
