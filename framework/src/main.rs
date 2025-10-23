@@ -1,5 +1,6 @@
 use actix::prelude::*;
-use actix_web::{web, App, HttpRequest, HttpServer, Error};
+use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}};
+use actix_session::{SessionMiddleware, storage::CookieSessionStore};
 use actix_web_actors::ws;
 use actix_files::Files;
 use pyo3::types::{PyAnyMethods, PyListMethods};
@@ -15,6 +16,7 @@ mod dto;
 mod fileupload;
 mod routing;
 mod disco;
+mod session;
 
 use actors::health::HealthActor;
 use actors::interpreter::PythonInterpreterActor;
@@ -206,7 +208,27 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         ws_server = Some(server);
     }
 
+    // Prepare a runtime session store and secret key. If session config is missing,
+    // we fall back to a default cookie store and a fixed key. This keeps the
+    // middleware type consistent across configurations.
+    use std::sync::Arc as StdArc;
+    let (runtime_store, runtime_secret): (session::RuntimeSessionStore, Key) = if let Some(session_config) = &config::CONFIG.session {
+        let secret_key = Key::from(session_config.secret_key.as_bytes());
+        let store = match session_config.backend {
+            config::SessionBackend::Cookie => session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default())),
+            config::SessionBackend::InMemory => session::RuntimeSessionStore::InMemory(session::InMemoryBackend::new()),
+        };
+        (store, secret_key)
+    } else {
+        // Default fallback
+        let secret_key = Key::from(&[0u8; 64]);
+        let store = session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()));
+        (store, secret_key)
+    };
+
     HttpServer::new(move || {
+        // Build the app with all routes and data first. This avoids type
+        // mismatch when conditionally wrapping with middleware later.
         let mut app = App::new()
             .wrap(actix_web::middleware::Compress::default())
             .app_data(renderer_data.clone())
@@ -228,7 +250,21 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         }
 
         app = app.default_service(web::route().to(routing::dynamic_route_handler));
-        app
+
+        // Now optionally wrap with session middleware. We box the final App so
+        // both wrapped and unwrapped variants have the same return type from the
+        // closure (Box<dyn ServiceFactory<...>>).
+        // Always wrap with the prepared runtime_store and runtime_secret. This
+        // keeps the app's concrete type stable while honoring configuration.
+        app.wrap(
+            SessionMiddleware::builder(runtime_store.clone(), runtime_secret.clone())
+                .cookie_name(config::CONFIG.session.as_ref().map(|s| s.cookie_name.clone()).unwrap_or_else(|| "noventa_session".to_string()))
+                .cookie_secure(config::CONFIG.session.as_ref().map(|s| s.cookie_secure).unwrap_or(false))
+                .cookie_http_only(config::CONFIG.session.as_ref().map(|s| s.cookie_http_only).unwrap_or(true))
+                .cookie_path(config::CONFIG.session.as_ref().map(|s| s.cookie_path.clone()).unwrap_or_else(|| "/".to_string()))
+                .cookie_same_site(SameSite::Lax)
+                .build(),
+        )
     })
     .workers(actix_web_threads) // Set the number of web server worker threads.
     .keep_alive(std::time::Duration::from_secs(30))
@@ -240,4 +276,5 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 async fn dev_ws(req: HttpRequest, stream: web::Payload, srv: web::Data<Addr<WsServer>>) -> Result<actix_web::HttpResponse, Error> {
     ws::start(DevWebSocket::new(srv.get_ref().clone()), &req, stream)
 }
+
 

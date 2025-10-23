@@ -91,6 +91,7 @@ impl Actor for PageRendererActor {
 pub struct RenderMessage {
     pub template_path: String,
     pub request_info: Arc<HttpRequestInfo>,
+    pub session: HashMap<String, String>,
 }
 
 impl Handler<RenderMessage> for PageRendererActor {
@@ -103,6 +104,7 @@ impl Handler<RenderMessage> for PageRendererActor {
             let render_msg = RenderTemplate {
                 template_name: msg.template_path,
                 request_info: msg.request_info.clone(),
+                session: msg.session,
             };
 
             let start_time = std::time::Instant::now();

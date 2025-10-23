@@ -2,6 +2,24 @@ use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::fs;
 
+#[derive(Deserialize, Clone, Copy)]
+pub enum SessionBackend {
+    Cookie,
+    InMemory,
+}
+
+#[derive(Deserialize)]
+pub struct SessionConfig {
+    pub backend: SessionBackend,
+    pub secret_key: String,
+    pub cookie_name: String,
+    pub cookie_secure: bool,
+    pub cookie_http_only: bool,
+    pub cookie_path: String,
+    pub cookie_domain: Option<String>,
+    pub cookie_max_age: Option<i64>,
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     pub max_memory_size: Option<usize>,
@@ -10,6 +28,7 @@ pub struct Config {
     pub database: Option<String>,
     pub static_path: Option<String>,
     pub static_url_prefix: Option<String>,
+    pub session: Option<SessionConfig>,
 }
 
 impl Config {

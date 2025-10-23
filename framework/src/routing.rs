@@ -3,6 +3,7 @@ use crate::actors::page_renderer::{HttpRequestInfo, RenderMessage};
 use crate::actors::router::{MatchRoute, RouterActor};
 use actix::{Addr, Recipient};
 use actix_multipart::Multipart;
+use actix_session::Session;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
@@ -128,6 +129,7 @@ fn build_http_request_info(
     form_data: serde_json::Map<String, serde_json::Value>,
     files: HashMap<String, crate::actors::page_renderer::FilePart>,
     path_params: HashMap<String, String>,
+    session: &Session,
 ) -> HttpRequestInfo {
     let headers = req
         .headers()
@@ -222,15 +224,23 @@ pub async fn handle_page(
     req: HttpRequest,
     payload: web::Payload,
     renderer: web::Data<Recipient<RenderMessage>>,
+    session: Session,
     template_path: String,
     path_params: HashMap<String, String>,
 ) -> HttpResponse {
     let (form_data, files) = parse_request_body(&req, payload).await;
-    let request_info = build_http_request_info(&req, form_data, files, path_params);
+    let request_info = build_http_request_info(&req, form_data, files, path_params, &session);
+
+    let session_data: HashMap<String, String> = session
+        .entries()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
 
     let render_msg = RenderMessage {
         template_path,
         request_info: Arc::new(request_info),
+        session: session_data,
     };
 
     match renderer.send(render_msg).await {
@@ -265,11 +275,12 @@ pub async fn dynamic_route_handler(
     payload: web::Payload,
     router: web::Data<Addr<RouterActor>>,
     renderer: web::Data<Recipient<RenderMessage>>,
+    session: Session,
 ) -> HttpResponse {
     let path = req.path().to_string();
     match router.send(MatchRoute(path)).await {
         Ok(Some((template_path, path_params))) => {
-            handle_page(req, payload, renderer, template_path, path_params).await
+            handle_page(req, payload, renderer, session, template_path, path_params).await
         }
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(_) => HttpResponse::InternalServerError().finish(),
