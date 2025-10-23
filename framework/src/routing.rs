@@ -96,22 +96,18 @@ fn path_to_route(path: &Path, base_dir: &Path) -> String {
     }
 }
 
-pub async fn handle_page(
-    req: HttpRequest,
-    payload: web::Payload,
-    renderer: web::Data<Recipient<RenderMessage>>,
-    template_path: String,
-    path_params: HashMap<String, String>,
-) -> HttpResponse {
-    let (form_data, files) = if req.method() == actix_web::http::Method::POST {
+async fn parse_request_body(
+    req: &HttpRequest,
+    mut payload: web::Payload,
+) -> (serde_json::Map<String, serde_json::Value>, HashMap<String, crate::actors::page_renderer::FilePart>) {
+    if req.method() == actix_web::http::Method::POST {
         let content_type = req.headers().get("content-type").map(|v| v.to_str().unwrap_or("")).unwrap_or("");
         if content_type.starts_with("multipart/form-data") {
             let multipart = Multipart::new(req.headers(), payload);
             crate::fileupload::handle_multipart(multipart).await
         } else {
             let mut body = web::BytesMut::new();
-            let mut stream = payload;
-            while let Some(chunk) = stream.next().await {
+            while let Some(chunk) = payload.next().await {
                 let chunk = chunk.unwrap();
                 body.extend_from_slice(&chunk);
             }
@@ -124,8 +120,15 @@ pub async fn handle_page(
         }
     } else {
         (serde_json::Map::new(), HashMap::new())
-    };
+    }
+}
 
+fn build_http_request_info(
+    req: &HttpRequest,
+    form_data: serde_json::Map<String, serde_json::Value>,
+    files: HashMap<String, crate::actors::page_renderer::FilePart>,
+    path_params: HashMap<String, String>,
+) -> HttpRequestInfo {
     let headers = req
         .headers()
         .iter()
@@ -135,7 +138,41 @@ pub async fn handle_page(
     let query_params: HashMap<String, String> =
         serde_urlencoded::from_str(req.query_string()).unwrap_or_default();
 
-    let request_info = HttpRequestInfo {
+    let scheme = req.connection_info().scheme().to_string();
+    let host = req.connection_info().host().to_string();
+    let remote_addr = req.connection_info().realip_remote_addr().map(|s| s.to_string());
+    let full_path = if req.query_string().is_empty() {
+        req.path().to_string()
+    } else {
+        format!("{}?{}", req.path(), req.query_string())
+    };
+    let url = format!("{}://{}{}", scheme, host, full_path);
+    let base_url = format!("{}://{}{}", scheme, host, req.path());
+    let host_url = format!("{}://{}", scheme, host);
+    let url_root = format!("{}://{}", scheme, host);
+    let query_string = req.query_string().as_bytes().to_vec();
+    let cookies = req.cookies()
+        .map(|c| c.iter().map(|c| (c.name().to_string(), c.value().to_string())).collect())
+        .unwrap_or_default();
+    let user_agent = req.headers().get("user-agent").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    let content_type = req.headers().get("content-type").and_then(|v| v.to_str().ok()).map(|s| s.to_string());
+    let content_length = req.headers().get("content-length").and_then(|v| v.to_str().ok()).and_then(|s| s.parse::<usize>().ok());
+    let is_secure = scheme == "https";
+    let is_xhr = req.headers().get("x-requested-with").map_or(false, |v| v == "XMLHttpRequest");
+
+    let get_header_values = |key: &str| -> Vec<String> {
+        req.headers()
+            .get_all(key)
+            .flat_map(|v| v.to_str().unwrap_or("").split(','))
+            .map(|s| s.trim().to_string())
+            .collect()
+    };
+
+    let get_header_value = |key: &str| -> Option<String> {
+        req.headers().get(key).and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+    };
+
+    HttpRequestInfo {
         path: req.path().to_string(),
         method: req.method().to_string(),
         headers,
@@ -143,7 +180,53 @@ pub async fn handle_page(
         files,
         query_params,
         path_params,
-    };
+        scheme,
+        host,
+        remote_addr,
+        url,
+        base_url,
+        host_url,
+        url_root,
+        full_path,
+        query_string,
+        cookies,
+        user_agent,
+        content_type,
+        content_length,
+        is_secure,
+        is_xhr,
+        accept_charsets: get_header_values("accept-charset"),
+        accept_encodings: get_header_values("accept-encoding"),
+        accept_languages: get_header_values("accept-language"),
+        accept_mimetypes: get_header_values("accept"),
+        access_route: get_header_values("x-forwarded-for"),
+        authorization: get_header_value("authorization"),
+        cache_control: get_header_value("cache-control"),
+        content_encoding: get_header_value("content-encoding"),
+        content_md5: get_header_value("content-md5"),
+        date: get_header_value("date"),
+        if_match: get_header_values("if-match"),
+        if_modified_since: get_header_value("if-modified-since"),
+        if_none_match: get_header_values("if-none-match"),
+        if_range: get_header_value("if-range"),
+        if_unmodified_since: get_header_value("if-unmodified-since"),
+        max_forwards: get_header_value("max-forwards"),
+        pragma: get_header_value("pragma"),
+        range: get_header_value("range"),
+        referrer: get_header_value("referer"),
+        remote_user: get_header_value("remote-user"),
+    }
+}
+
+pub async fn handle_page(
+    req: HttpRequest,
+    payload: web::Payload,
+    renderer: web::Data<Recipient<RenderMessage>>,
+    template_path: String,
+    path_params: HashMap<String, String>,
+) -> HttpResponse {
+    let (form_data, files) = parse_request_body(&req, payload).await;
+    let request_info = build_http_request_info(&req, form_data, files, path_params);
 
     let render_msg = RenderMessage {
         template_path,
