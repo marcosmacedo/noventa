@@ -1,8 +1,13 @@
 use actix::prelude::*;
 use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}};
-use actix_session::{SessionMiddleware, storage::CookieSessionStore};
+use actix_session::{
+    storage::{CookieSessionStore, RedisSessionStore},
+    SessionMiddleware,
+};
 use actix_web_actors::ws;
+use deadpool_redis::{Config, Runtime};
 use actix_files::Files;
+use env_logger::builder;
 use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
 use std::process::Command;
@@ -215,13 +220,31 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     let (runtime_store, runtime_secret): (session::RuntimeSessionStore, Key) = if let Some(session_config) = &config::CONFIG.session {
         let secret_key = Key::from(session_config.secret_key.as_bytes());
         let store = match session_config.backend {
-            config::SessionBackend::Cookie => session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default())),
-            config::SessionBackend::InMemory => session::RuntimeSessionStore::InMemory(session::InMemoryBackend::new()),
+            config::SessionBackend::Cookie => {
+                session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()))
+            }
+            config::SessionBackend::InMemory => {
+                session::RuntimeSessionStore::InMemory(session::InMemoryBackend::new())
+            }
+            config::SessionBackend::Redis => {
+                let redis_url = session_config.redis_url.as_ref().expect("redis_url is required for redis session backend");
+                let redis_pool_size = session_config.redis_pool_size.unwrap_or(10) as usize;
+                // Create config from URL and set pool max size
+                let mut redis_cfg = Config::from_url(redis_url);
+                redis_cfg.pool = Some(deadpool_redis::PoolConfig {
+                    max_size: redis_pool_size,
+                    ..Default::default()
+                });
+                let redis_pool = redis_cfg.create_pool(Some(Runtime::Tokio1)).expect("Failed to create redis pool");
+                let store = RedisSessionStore::new_pooled(redis_pool).await.expect("Failed to create Redis session store");
+                session::RuntimeSessionStore::Redis(store)
+            }
         };
         (store, secret_key)
     } else {
         // Default fallback if no session config is provided
         let secret_key = Key::from(&[0u8; 64]); // Use a secure, random key in production
+        log::warn!("No session configuration found. Using default cookie session store with a fixed secret key. This is NOT recommended for production.");
         let store = session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()));
         (store, secret_key)
     };

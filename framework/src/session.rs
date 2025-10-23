@@ -1,4 +1,7 @@
-use actix_session::storage::{LoadError, SaveError, SessionKey, SessionStore, UpdateError, CookieSessionStore};
+use actix_session::storage::{
+    CookieSessionStore, LoadError, RedisSessionStore, SaveError, SessionKey, SessionStore,
+    UpdateError,
+};
 use actix_web::cookie::time::Duration;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -65,6 +68,7 @@ impl SessionStore for InMemoryBackend {
 pub enum RuntimeSessionStore {
     Cookie(Arc<CookieSessionStore>),
     InMemory(InMemoryBackend),
+    Redis(RedisSessionStore),
 }
 
 impl RuntimeSessionStore {
@@ -78,6 +82,7 @@ impl SessionStore for RuntimeSessionStore {
         match self {
             RuntimeSessionStore::Cookie(s) => s.load(session_key).await,
             RuntimeSessionStore::InMemory(s) => s.load(session_key).await,
+            RuntimeSessionStore::Redis(s) => s.load(session_key).await,
         }
     }
 
@@ -89,6 +94,7 @@ impl SessionStore for RuntimeSessionStore {
         match self {
             RuntimeSessionStore::Cookie(s) => s.save(session_state, ttl).await,
             RuntimeSessionStore::InMemory(s) => s.save(session_state, ttl).await,
+            RuntimeSessionStore::Redis(s) => s.save(session_state, ttl).await,
         }
     }
 
@@ -101,6 +107,7 @@ impl SessionStore for RuntimeSessionStore {
         match self {
             RuntimeSessionStore::Cookie(s) => s.update(session_key, session_state, ttl).await,
             RuntimeSessionStore::InMemory(s) => s.update(session_key, session_state, ttl).await,
+            RuntimeSessionStore::Redis(s) => s.update(session_key, session_state, ttl).await,
         }
     }
 
@@ -108,6 +115,7 @@ impl SessionStore for RuntimeSessionStore {
         match self {
             RuntimeSessionStore::Cookie(s) => s.update_ttl(session_key, ttl).await,
             RuntimeSessionStore::InMemory(s) => s.update_ttl(session_key, ttl).await,
+            RuntimeSessionStore::Redis(s) => s.update_ttl(session_key, ttl).await,
         }
     }
 
@@ -115,6 +123,7 @@ impl SessionStore for RuntimeSessionStore {
         match self {
             RuntimeSessionStore::Cookie(s) => s.delete(session_key).await,
             RuntimeSessionStore::InMemory(s) => s.delete(session_key).await,
+            RuntimeSessionStore::Redis(s) => s.delete(session_key).await,
         }
     }
 }
