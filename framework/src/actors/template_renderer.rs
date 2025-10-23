@@ -1,6 +1,7 @@
 use crate::actors::health::{HealthActor, ReportTemplateLatency, ReportPythonLatency};
-use crate::actors::interpreter::{ExecutePythonFunction, PythonInterpreterActor};
+use crate::actors::interpreter::{ExecutePythonFunction, PythonFunctionResult, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
+use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
 use actix::prelude::*;
 use minijinja::{Environment, Error, State, value::Kwargs, Value};
@@ -77,16 +78,20 @@ impl TemplateRendererActor {
                     function_name: format!("action_{}", action),
                     request: msg.request_info.clone(),
                     args: Some(kwargs_map_post),
-                    session: msg.session.clone(),
+                    session_manager: msg.session_manager.clone(),
                 };
 
                 let result = futures::executor::block_on(self.interpreter.send(execute_fn_msg));
                 match result {
-                    Ok(Ok(context)) => {
-                        action_context = Some(context);
+                    Ok(Ok(result)) => {
+                        action_context = Some(result.context);
                     }
-                    Ok(Err(e)) => return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())),
-                    Err(e) => return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())),
+                    Ok(Err(e)) => {
+                        return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                    }
+                    Err(e) => {
+                        return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                    }
                 }
             }
         }
@@ -100,6 +105,7 @@ impl TemplateRendererActor {
         let interpreter_clone = self.interpreter.clone();
         let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
+        let session_manager_clone = msg.session_manager.clone();
         let components_clone = self.components.clone();
         let action_context = Arc::new(action_context);
 
@@ -122,7 +128,7 @@ impl TemplateRendererActor {
                         function_name: "load_template_context".to_string(),
                         request: request_info_clone.clone(),
                         args: Some(kwargs_map),
-                        session: msg.session.clone(),
+                        session_manager: session_manager_clone.clone(),
                     };
 
                     let python_start_time = std::time::Instant::now();
@@ -132,9 +138,13 @@ impl TemplateRendererActor {
                     health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
 
                     match result {
-                        Ok(Ok(context)) => context,
-                        Ok(Err(e)) => return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())),
-                        Err(e) => return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string())),
+                        Ok(Ok(result)) => result.context,
+                        Ok(Err(e)) => {
+                            return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                        }
+                        Err(e) => {
+                            return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                        }
                     }
                 };
 
@@ -241,7 +251,7 @@ impl Actor for TemplateRendererActor {
 pub struct RenderTemplate {
     pub template_name: String,
     pub request_info: Arc<HttpRequestInfo>,
-    pub session: HashMap<String, String>,
+    pub session_manager: Addr<SessionManagerActor>,
 }
 
 #[derive(Message)]
@@ -264,6 +274,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         let interpreter_clone = self.interpreter.clone();
         let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
+        let session_manager_clone = msg.session_manager.clone();
         let components_clone = self.components.clone();
 
         env.add_function(
@@ -279,7 +290,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     function_name: "load_template_context".to_string(),
                     request: request_info_clone.clone(),
                     args: Some(kwargs_map),
-                    session: msg.session.clone(),
+                    session_manager: session_manager_clone.clone(),
                 };
 
                 let python_start_time = std::time::Instant::now();
@@ -289,7 +300,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
 
                 match result {
-                    Ok(Ok(context)) => {
+                    Ok(Ok(result)) => {
                         let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
                             Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                         })?;
@@ -298,12 +309,12 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                             template_path = template_path[2..].to_string();
                         }
                         let tmpl = state.env().get_template(&template_path)?;
-                        let mut result = tmpl.render(context)?;
+                        let mut rendered_component = tmpl.render(result.context)?;
 
                         let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
-                        result = FORM_REGEX.replace_all(&result, replacement).to_string();
+                        rendered_component = FORM_REGEX.replace_all(&rendered_component, replacement).to_string();
 
-                        Ok(Value::from_safe_string(result))
+                        Ok(Value::from_safe_string(rendered_component))
                     }
                     Ok(Err(e)) => {
                         log::error!("Error executing python function: {}", e);

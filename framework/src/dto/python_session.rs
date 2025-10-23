@@ -1,50 +1,121 @@
+use crate::actors::session_manager::{
+    ClearSession, DeleteSessionValue, GetSessionValue, GetStatus, MarkAsModified, SessionManagerActor,
+    SetPermanent, SetSessionValue,
+};
+use actix::Addr;
+use actix_session::SessionStatus;
+use pyo3::exceptions::{PyAttributeError, PyKeyError};
 use pyo3::prelude::*;
-use std::collections::HashMap;
 
 #[pyclass]
+#[derive(Clone)]
 pub struct PySession {
-    session: HashMap<String, String>,
+    session_manager: Addr<SessionManagerActor>,
 }
 
 impl PySession {
-    pub fn new(session: HashMap<String, String>) -> Self {
-        PySession { session }
-    }
-
-    pub fn get_session_state(&self) -> HashMap<String, String> {
-        self.session.clone()
+    pub fn new(session_manager: Addr<SessionManagerActor>) -> Self {
+        PySession { session_manager }
     }
 }
 
 #[pymethods]
 impl PySession {
+    #[getter(new)]
+    fn is_new(&self) -> PyResult<bool> {
+        match futures::executor::block_on(self.session_manager.send(GetStatus)) {
+            Ok(Ok(status)) => Ok(status == SessionStatus::Changed), // Simplified: actix-session doesn't expose "New" directly.
+            Ok(Err(e)) => Err(PyAttributeError::new_err(e.to_string())),
+            Err(e) => Err(PyAttributeError::new_err(e.to_string())),
+        }
+    }
+
+    #[getter]
+    fn modified(&self) -> PyResult<bool> {
+        match futures::executor::block_on(self.session_manager.send(GetStatus)) {
+            Ok(Ok(status)) => Ok(status == SessionStatus::Changed),
+            Ok(Err(e)) => Err(PyAttributeError::new_err(e.to_string())),
+            Err(e) => Err(PyAttributeError::new_err(e.to_string())),
+        }
+    }
+
+    #[setter]
+    fn set_modified(&self, value: bool) -> PyResult<()> {
+        if value {
+            match futures::executor::block_on(self.session_manager.send(MarkAsModified)) {
+                Ok(Ok(_)) => Ok(()),
+                Ok(Err(e)) => Err(PyAttributeError::new_err(e.to_string())),
+                Err(e) => Err(PyAttributeError::new_err(e.to_string())),
+            }
+        } else {
+            // Flask session doesn't allow setting modified to False,
+            // but we can just do nothing.
+            Ok(())
+        }
+    }
+
+    #[getter]
+    fn permanent(&self) -> PyResult<bool> {
+        // This is a simplification. A full implementation would need to
+        // inspect the cookie's expiration. For now, we'll assume
+        // non-permanent unless explicitly set.
+        Ok(false)
+    }
+
+    #[setter]
+    fn set_permanent(&self, value: bool) -> PyResult<()> {
+        let msg = SetPermanent { permanent: value };
+        match futures::executor::block_on(self.session_manager.send(msg)) {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(PyAttributeError::new_err(e.to_string())),
+            Err(e) => Err(PyAttributeError::new_err(e.to_string())),
+        }
+    }
+
     fn __getitem__(&self, key: &str) -> PyResult<Option<String>> {
-        Ok(self.session.get(key).cloned())
+        let msg = GetSessionValue {
+            key: key.to_string(),
+        };
+
+        match futures::executor::block_on(self.session_manager.send(msg)) {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(e)) => Err(PyKeyError::new_err(e.to_string())),
+            Err(e) => Err(PyKeyError::new_err(e.to_string())),
+        }
     }
 
     fn __setitem__(&mut self, key: &str, value: &str) -> PyResult<()> {
-        self.session.insert(key.to_string(), value.to_string());
-        Ok(())
+        let msg = SetSessionValue {
+            key: key.to_string(),
+            value: value.to_string(),
+        };
+
+        match futures::executor::block_on(self.session_manager.send(msg)) {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(PyKeyError::new_err(e.to_string())),
+            Err(e) => Err(PyKeyError::new_err(e.to_string())),
+        }
     }
 
     fn __delitem__(&mut self, key: &str) -> PyResult<()> {
-        self.session.remove(key);
-        Ok(())
+        let msg = DeleteSessionValue {
+            key: key.to_string(),
+        };
+
+        match futures::executor::block_on(self.session_manager.send(msg)) {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(PyKeyError::new_err(e.to_string())),
+            Err(e) => Err(PyKeyError::new_err(e.to_string())),
+        }
     }
 
-    fn get(&self, key: &str) -> PyResult<Option<String>> {
-        self.__getitem__(key)
-    }
+    fn clear(&mut self) -> PyResult<()> {
+        let msg = ClearSession;
 
-    fn insert(&mut self, key: &str, value: &str) -> PyResult<()> {
-        self.__setitem__(key, value)
-    }
-
-    fn remove(&mut self, key: &str) -> PyResult<()> {
-        self.__delitem__(key)
-    }
-
-    fn clear(&mut self) {
-        self.session.clear();
+        match futures::executor::block_on(self.session_manager.send(msg)) {
+            Ok(Ok(_)) => Ok(()),
+            Ok(Err(e)) => Err(PyKeyError::new_err(e.to_string())),
+            Err(e) => Err(PyKeyError::new_err(e.to_string())),
+        }
     }
 }

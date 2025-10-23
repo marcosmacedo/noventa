@@ -1,7 +1,8 @@
 use crate::actors::health::{GetSystemHealth, HealthActor};
 use crate::actors::page_renderer::{HttpRequestInfo, RenderMessage};
 use crate::actors::router::{MatchRoute, RouterActor};
-use actix::{Addr, Recipient};
+use crate::actors::session_manager::SessionManagerActor;
+use actix::{Actor, Addr, Recipient};
 use actix_multipart::Multipart;
 use actix_session::Session;
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
@@ -231,16 +232,12 @@ pub async fn handle_page(
     let (form_data, files) = parse_request_body(&req, payload).await;
     let request_info = build_http_request_info(&req, form_data, files, path_params, &session);
 
-    let session_data: HashMap<String, String> = session
-        .entries()
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let session_manager = SessionManagerActor::new(session).start();
 
     let render_msg = RenderMessage {
         template_path,
         request_info: Arc::new(request_info),
-        session: session_data,
+        session_manager,
     };
 
     match renderer.send(render_msg).await {
