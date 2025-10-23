@@ -239,6 +239,7 @@ impl Actor for TemplateRendererActor {
 pub struct RenderTemplate {
     pub template_name: String,
     pub request_info: Arc<HttpRequestInfo>,
+    pub session: HashMap<String, String>,
 }
 
 #[derive(Message)]
