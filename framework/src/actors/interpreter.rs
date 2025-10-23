@@ -6,7 +6,6 @@ use actix::prelude::*;
 use minijinja::Value;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
-use serde_json;
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
@@ -145,41 +144,37 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
             self.id,
             msg.component_name
         );
-        Python::attach(|py| {
+
+        let module_path = if self.dev_mode {
+            let component = self
+                .components
+                .iter()
+                .find(|c| c.id == msg.component_name)
+                .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found in dev mode"))?;
+
+            if let Some(logic_path) = &component.logic_path {
+                path_to_module(logic_path).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
+            } else {
+                return Err(Error::new(ErrorKind::NotFound, "Component logic not found"));
+            }
+        } else {
+            // In non-dev mode, we don't need to calculate the path,
+            // but we need a placeholder for the logic below.
+            // The module will be fetched from `self.modules`.
+            String::new()
+        };
+
+        let py_request = PyRequest { inner: msg.request };
+        let py_session = crate::dto::python_session::PySession::new(msg.session_manager);
+
+        let result_value: serde_json::Value = Python::attach(|py| {
             let module = if self.dev_mode {
-                let component = self
-                    .components
-                    .iter()
-                    .find(|c| c.id == msg.component_name)
-                    .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found in dev mode"))?;
-
-                if let Some(logic_path) = &component.logic_path {
-                    let module_path = path_to_module(logic_path)
-                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-
-                    let importlib = py
-                        .import("importlib")
-                        .map_err(|e| pyerr_to_io_error(e, py))?;
-                    let import_module = importlib
-                        .getattr("import_module")
-                        .map_err(|e| pyerr_to_io_error(e, py))?;
-                    let module = import_module
-                        .call1((module_path,))
-                        .map_err(|e| pyerr_to_io_error(e, py))?;
-
-                    let reload = importlib
-                        .getattr("reload")
-                        .map_err(|e| pyerr_to_io_error(e, py))?;
-                    reload.call1((module.clone(),)).map_err(|e| pyerr_to_io_error(e, py))?;
-
-                    module
-                        .downcast::<PyModule>()
-                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
-                        .clone()
-                        .into()
-                } else {
-                    return Err(Error::new(ErrorKind::NotFound, "Component logic not found"));
-                }
+                let importlib = py.import("importlib").map_err(|e| pyerr_to_io_error(e, py))?;
+                let import_module = importlib.getattr("import_module").map_err(|e| pyerr_to_io_error(e, py))?;
+                let module = import_module.call1((module_path,)).map_err(|e| pyerr_to_io_error(e, py))?;
+                let reload = importlib.getattr("reload").map_err(|e| pyerr_to_io_error(e, py))?;
+                reload.call1((module.clone(),)).map_err(|e| pyerr_to_io_error(e, py))?;
+                module.downcast::<PyModule>().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?.clone().into()
             } else {
                 self.modules
                     .get(&msg.component_name)
@@ -187,43 +182,34 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
                     .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found"))?
             };
 
-            let func = module
-                .getattr(py, &msg.function_name)
-                .map_err(|e| pyerr_to_io_error(e, py))?;
+            let func = module.getattr(py, &msg.function_name).map_err(|e| pyerr_to_io_error(e, py))?;
 
-            let py_request = Py::new(py, PyRequest { inner: msg.request }).unwrap();
-            let py_session_obj =
-                Py::new(py, crate::dto::python_session::PySession::new(msg.session_manager)).unwrap();
+            let py_request_obj = Py::new(py, py_request).unwrap();
+            let py_session_obj = Py::new(py, py_session).unwrap();
+
             let py_args = PyDict::new(py);
             if let Some(args) = msg.args {
                 for (key, value) in args {
                     let py_value = pythonize::pythonize(py, &value)
                         .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-                    py_args
-                        .set_item(key, py_value)
-                        .map_err(|e| pyerr_to_io_error(e, py))?;
+                    py_args.set_item(key, py_value).map_err(|e| pyerr_to_io_error(e, py))?;
                 }
             }
 
             let args = if let Some(db) = &self.db_instance {
-                (py_request, py_session_obj, db.clone_ref(py).into())
+                (py_request_obj, py_session_obj, db.clone_ref(py).into())
             } else {
-                // This branch should ideally not be taken if db is always expected.
-                // Consider how to handle the absence of a db instance.
-                // For now, we'll pass PyNone.
-                (py_request, py_session_obj, py.None())
+                (py_request_obj, py_session_obj, py.None())
             };
-            let result = func.call(py, args, Some(&py_args));
 
-            let result = result.map_err(|e| pyerr_to_io_error(e, py))?;
-
+            let result = func.call(py, args, Some(&py_args)).map_err(|e| pyerr_to_io_error(e, py))?;
             let py_any = result.bind(py);
-            let serde_value: serde_json::Value = pythonize::depythonize(py_any)
-                .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-            let value = Value::from_serialize(&serde_value);
 
-            Ok(PythonFunctionResult { context: value })
-        })
+            pythonize::depythonize(py_any).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+        })?;
+
+        let value = Value::from_serialize(&result_value);
+        Ok(PythonFunctionResult { context: value })
     }
 }
 

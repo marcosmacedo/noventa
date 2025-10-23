@@ -4,6 +4,7 @@ use actix_multipart::Multipart;
 use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use std::io::Write;
+use path_clean::PathClean;
 
 pub async fn handle_multipart(
     mut multipart: Multipart,
@@ -17,10 +18,11 @@ pub async fn handle_multipart(
     let temp_dir = match &CONFIG.temp_dir {
         Some(dir) if !dir.is_empty() => {
             let path = std::path::PathBuf::from(dir);
-            if path.is_absolute() {
-                path
+            let cleaned_path = path.clean();
+            if cleaned_path.is_absolute() {
+                cleaned_path
             } else {
-                std::env::current_dir().unwrap().join(path)
+                std::env::current_dir().unwrap().join(cleaned_path)
             }
         }
         _ => std::env::temp_dir(),

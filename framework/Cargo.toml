@@ -37,6 +37,7 @@ ego-tree = "0.6.2"
 async-trait = "0.1.80"
 anyhow = "1.0.86"
 deadpool-redis = "0.22.0"
+path-clean = "1.0"
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"

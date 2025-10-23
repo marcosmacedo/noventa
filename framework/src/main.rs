@@ -11,6 +11,7 @@ use actix_files::Files;
 use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
 use std::process::Command;
+use path_clean::PathClean;
 use std::env;
 use crate::actors::page_renderer::RenderMessage;
 
@@ -262,12 +263,13 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
                      .route("/devws", web::get().to(dev_ws));
         }
 
-        if let Some(static_path) = &config::CONFIG.static_path {
+        if let Some(static_path_str) = &config::CONFIG.static_path {
+            let static_path = std::path::PathBuf::from(static_path_str).clean();
             let url_prefix = config::CONFIG
                 .static_url_prefix
                 .as_deref()
                 .unwrap_or("/static");
-            app = app.service(Files::new(url_prefix, static_path).show_files_listing());
+            app = app.service(Files::new(url_prefix, static_path));
         }
 
         app = app.default_service(web::route().to(routing::dynamic_route_handler));
