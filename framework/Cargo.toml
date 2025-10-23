@@ -9,7 +9,7 @@ actix-multipart = "0.7.0"
 actix-web = { version = "4.11.0" }
 actix-web-actors = "4.3.0"
 actix-files = "0.6.2"
-actix-session = { version = "0.11.0", features = ["cookie-session"] }
+actix-session = { version = "0.11.0", features = ["cookie-session", "redis-session", "redis-session-rustls", "redis-pool"] }
 rand = "0.8"
 pyo3 = { version = "0.26.0", features = ["auto-initialize", "multiple-pymethods"] }
 pythonize = "0.26.0"
@@ -36,6 +36,7 @@ scraper = "0.13.0"
 ego-tree = "0.6.2"
 async-trait = "0.1.80"
 anyhow = "1.0.86"
+deadpool-redis = "0.22.0"
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"

@@ -6,6 +6,7 @@ use std::fs;
 pub enum SessionBackend {
     Cookie,
     InMemory,
+    Redis,
 }
 
 #[derive(Deserialize)]
@@ -18,6 +19,8 @@ pub struct SessionConfig {
     pub cookie_path: String,
     pub cookie_domain: Option<String>,
     pub cookie_max_age: Option<i64>,
+    pub redis_url: Option<String>,
+    pub redis_pool_size: Option<usize>,
 }
 
 #[derive(Deserialize)]
