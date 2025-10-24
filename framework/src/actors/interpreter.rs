@@ -6,8 +6,8 @@ use minijinja::Value;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyModule};
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::io::{Error, ErrorKind};
-use std::path::Path;
 use std::sync::Arc;
 
 // Define the message for rendering a component
@@ -68,22 +68,25 @@ impl Actor for PythonInterpreterActor {
             path.call_method1("insert", (0, ".")).unwrap();
 
             if let Some(db_url) = &CONFIG.database {
-                match py.import("db") {
+                let db_code = CString::new(crate::scripts::python_embed::DB_PY).unwrap();
+                let db_filename = CString::new("db.py").unwrap();
+                let db_module_name = CString::new("db").unwrap();
+                match PyModule::from_code(py, &db_code, &db_filename, &db_module_name) {
                     Ok(db_module) => match db_module.getattr("initialize_database") {
                         Ok(init_func) => match init_func.call1((db_url,)) {
                             Ok(db_instance) => {
                                 self.db_instance = Some(db_instance.into());
                             }
                             Err(e) => {
-                                log::error!("Oh no! We couldn't initialize the database. Your `db.py` script ran into an error: {}", e);
+                                log::error!("Failed to initialize the database from embedded script: {}", e);
                             }
                         },
                         Err(e) => {
-                            log::error!("We couldn't find the `initialize_database` function in your `db.py` file: {}. Did you remember to define it?", e);
+                            log::error!("Could not find `initialize_database` in embedded db.py: {}", e);
                         }
                     },
                     Err(e) => {
-                        log::error!("We couldn't load `db.py`: {}. Please make sure the file exists and has the correct permissions.", e);
+                        log::error!("Failed to load embedded db.py module: {}", e);
                     }
                 }
             }
@@ -136,16 +139,23 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                 }
             }
 
-            let args = if let Some(db) = &self.db_instance {
-                (py_request_obj, py_session_obj, db.clone_ref(py).into())
-            } else {
-                (py_request_obj, py_session_obj, py.None())
-            };
+            let db_arg = self.db_instance.as_ref().map_or(py.None(), |db| db.clone_ref(py).into());
 
-            let result = func.call(py, args, Some(&py_args)).map_err(|e| pyerr_to_io_error(e, py))?;
-            let py_any = result.bind(py);
+            // Load the embedded Python utils from the new path
+            let utils_code = CString::new(crate::scripts::python_embed::UTILS_PY).unwrap();
+            let utils_filename = CString::new("utils.py").unwrap();
+            let utils_module_name = CString::new("utils").unwrap();
+            let utils_module = PyModule::from_code(py, &utils_code, &utils_filename, &utils_module_name)
+                .map_err(|e| pyerr_to_io_error(e, py))?;
+            let wrapper_func = utils_module.getattr("call_user_function")
+                .map_err(|e| pyerr_to_io_error(e, py))?;
 
-            pythonize::depythonize(py_any).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+            // The user's function and its arguments are passed to the wrapper
+            let args_to_wrapper = (func, py_request_obj, py_session_obj, db_arg);
+            let result = wrapper_func.call(args_to_wrapper, Some(&py_args)).map_err(|e| pyerr_to_io_error(e, py))?;
+            
+            let py_any = result;
+            pythonize::depythonize(&py_any).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
         })?;
 
         let value = Value::from_serialize(&result_value);
@@ -167,19 +177,4 @@ fn pyerr_to_io_error(e: PyErr, py: Python) -> Error {
     let err_string = e.to_string();
     e.print(py);
     Error::new(ErrorKind::Other, err_string)
-}
-
-fn path_to_module(path_str: &str) -> Result<String, &'static str> {
-    let _path = Path::new(path_str);
-
-    // Strip the leading "./web/" from the path
-    let cleaned_path_str = path_str.strip_prefix("./").unwrap_or(path_str);
-
-    // Replace directory separators with dots and remove the .py extension
-    let module_path = cleaned_path_str
-        .strip_suffix(".py")
-        .unwrap_or(cleaned_path_str)
-        .replace("/", ".");
-
-    Ok(module_path)
 }

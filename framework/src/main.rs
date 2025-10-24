@@ -1,3 +1,4 @@
+pub mod scripts;
 use actix::prelude::*;
 use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}};
 use actix_session::config::PersistentSession;
