@@ -26,9 +26,9 @@ session:
   # "cookie" for a client-side cookie store.
   # "in-memory" for a server-side, in-memory store.
   # "redis" for a server-side Redis store.
-  backend: "redis"
-  # IMPORTANT: A secret string at least 32 characters long.
-  secret_key: "a_very_secret_key_that_is_at_least_32_bytes_long"
+  backend: "in-memory"
+  # IMPORTANT: A secret string at least 64 characters long.
+  secret_key: "yaapejgyojczvsvsrtuvyucfghwwhzpieelbcnxbhnqipnqioqqgelodbfwmpqdk"
   # The name of the cookie that will be sent to the browser.
   cookie_name: "noventa_session"
   # If true, the cookie will only be sent over HTTPS. (Set to true in production)

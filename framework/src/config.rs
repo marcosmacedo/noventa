@@ -3,7 +3,39 @@ use lazy_static::lazy_static;
 use serde::Deserialize;
 use std::fs;
 
+use std::fmt;
+
+#[derive(Debug)]
+pub enum ConfigError {
+    Io(std::io::Error),
+    Parse(serde_yaml::Error),
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ConfigError::Io(err) => write!(f, "I/O error: {}", err),
+            ConfigError::Parse(err) => write!(f, "Parse error: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+impl From<std::io::Error> for ConfigError {
+    fn from(err: std::io::Error) -> Self {
+        ConfigError::Io(err)
+    }
+}
+
+impl From<serde_yaml::Error> for ConfigError {
+    fn from(err: serde_yaml::Error) -> Self {
+        ConfigError::Parse(err)
+    }
+}
+
 #[derive(Deserialize, Clone, Copy, Debug)]
+#[serde(rename_all = "kebab-case")]
 pub enum SessionBackend {
     Cookie,
     InMemory,
@@ -36,7 +68,7 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_file(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn from_file(path: &str) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
         let config = serde_yaml::from_str(&content)?;
         Ok(config)
@@ -52,9 +84,18 @@ cfg_if! {
         lazy_static! {
             pub static ref CONFIG: Config = match Config::from_file("./config.yaml") {
                 Ok(config) => config,
-                Err(_) => {
-                    println!("Error: config.yaml not found or cannot be read.");
-                    println!("Please ensure the file exists in the directory and has the correct permissions.");
+                Err(e) => {
+                    match e {
+                        ConfigError::Io(_) => {
+                            println!("Error: config.yaml not found or cannot be read.");
+                            println!("Please ensure the file exists in the current directory and has the correct permissions.");
+                        },
+                        ConfigError::Parse(err) => {
+                            println!("Error: Could not parse config.yaml.");
+                            println!("Please check the file for syntax errors.");
+                            println!("Details: {}", err);
+                        }
+                    }
                     std::process::exit(1);
                 }
             };
@@ -83,7 +124,7 @@ database: postgresql://user:pass@localhost/db
 static_path: /static
 static_url_prefix: /static-prefix
 session:
-  backend: Cookie
+  backend: cookie
   secret_key: a-very-secret-key
   cookie_name: my-session
   cookie_secure: true
@@ -129,11 +170,12 @@ session:
         file.write_all(b"invalid content").unwrap();
 
         let result = Config::from_file(config_path.to_str().unwrap());
-        assert!(result.is_err());
+        assert!(matches!(result, Err(ConfigError::Parse(_))));
     }
+
     #[test]
     fn test_config_from_file_not_found() {
         let result = Config::from_file("non_existent_config.yaml");
-        assert!(result.is_err());
+        assert!(matches!(result, Err(ConfigError::Io(_))));
     }
 }

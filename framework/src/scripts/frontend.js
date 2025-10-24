@@ -1,19 +1,86 @@
 let currentPath = window.location.pathname + window.location.search;
 
+function handleNavigation(newUrl) {
+    const newPathURL = new URL(newUrl, window.location.origin);
+    const newPath = newPathURL.pathname + newPathURL.search;
+
+    if (newPath !== currentPath) {
+        window.scrollTo(0, 0);
+    }
+
+    if (newPathURL.hash) {
+        // Use requestAnimationFrame to ensure the DOM is updated before scrolling to the hash.
+        requestAnimationFrame(() => {
+            const element = document.querySelector(newPathURL.hash);
+            if (element) {
+                element.scrollIntoView();
+            }
+        });
+    }
+}
+
+let showLoadingBarTimeout;
+let loadingBarVisible = false;
+
 function handleRequest(url, options, isPopState = false) {
+    const loadingBar = document.getElementById('xhr-loading-bar');
+
+    if (loadingBar) {
+        showLoadingBarTimeout = setTimeout(() => {
+            loadingBarVisible = true;
+            loadingBar.style.width = '0%';
+            loadingBar.style.opacity = '1';
+            // Start the loading animation
+            setTimeout(() => {
+                loadingBar.style.width = '70%';
+            }, 100);
+        }, 300);
+    }
+
     fetch(url, options)
         .then(response => response.text())
         .then(html => {
+            clearTimeout(showLoadingBarTimeout);
+            if (loadingBar && loadingBarVisible) {
+                loadingBar.style.width = '100%';
+                setTimeout(() => {
+                    loadingBar.style.opacity = '0';
+                    loadingBarVisible = false;
+                }, 200);
+            }
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            morphdom(document.head, doc.head);
-            morphdom(document.body, doc.body);
+            const morphdomOptions = {
+                onBeforeNodeDiscarded: function(node) {
+                    if (node.id === 'xhr-loading-bar' || node.id === 'xhr-loading-bar-styles') {
+                        return false; // Don't discard the loading bar or its styles
+                    }
+                }
+            };
+            morphdom(document.head, doc.head, morphdomOptions);
+            morphdom(document.body, doc.body, morphdomOptions);
+            handleNavigation(url);
             if (!isPopState) {
                 window.history.pushState({}, '', url);
                 currentPath = new URL(url).pathname + new URL(url).search;
             }
         })
-        .catch(error => console.error('Error fetching page:', error));
+        .catch(error => {
+            clearTimeout(showLoadingBarTimeout);
+            console.error('Error fetching page:', error);
+            if (loadingBar && loadingBarVisible) {
+                loadingBar.style.width = '100%';
+                loadingBar.style.backgroundColor = 'red';
+                loadingBar.style.opacity = '1';
+                setTimeout(() => {
+                    loadingBar.style.opacity = '0';
+                    loadingBarVisible = false;
+                    setTimeout(() => {
+                        loadingBar.style.backgroundColor = ''; // Reset color
+                    }, 200);
+                }, 500);
+            }
+        });
 }
 
 document.addEventListener('click', event => {
@@ -63,4 +130,27 @@ window.addEventListener('popstate', event => {
     }
 });
 
-console.log("Frontend script loaded and active.");
+document.addEventListener('DOMContentLoaded', () => {
+    const loadingBar = document.createElement('div');
+    loadingBar.id = 'xhr-loading-bar';
+    document.body.appendChild(loadingBar);
+
+    const styles = `
+        #xhr-loading-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0%;
+            height: 2px;
+            background-color: #3498db;
+            transition: width 0.2s, opacity 0.2s;
+            z-index: 9999;
+            opacity: 0;
+        }
+    `;
+    const styleSheet = document.createElement("style");
+    styleSheet.id = 'xhr-loading-bar-styles';
+    styleSheet.type = "text/css";
+    styleSheet.innerText = styles;
+    document.head.appendChild(styleSheet);
+});
