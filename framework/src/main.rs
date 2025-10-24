@@ -320,7 +320,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         e
     })?;
 
-    logger::print_banner("127.0.0.1", 8080);
+    logger::print_banner("127.0.0.1", 8080, dev_mode);
 
     server.run().await
 }

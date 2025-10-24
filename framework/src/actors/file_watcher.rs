@@ -69,9 +69,11 @@ impl Actor for FileWatcherActor {
                             interpreter_addr.do_send(ReloadInterpreter);
                         }
 
-                        if path.starts_with(&pages_path) || path.starts_with(&layouts_path) {
-                            log::debug!("A page or layout has changed. Reloading the routes now!");
+                        if path.starts_with(&pages_path) {
+                            log::debug!("A page has changed. Reloading the routes now!");
                             router_addr.do_send(ReloadRoutes);
+                        } else if path.starts_with(&layouts_path) {
+                            // We don't need to do anything here, but we want to avoid the component scan
                         } else if path.starts_with(&components_path) {
                             match crate::components::scan_single_component(path, &components_path) {
                                 Ok(component) => {
