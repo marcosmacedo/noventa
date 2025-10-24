@@ -115,19 +115,19 @@ impl Handler<RenderMessage> for PageRendererActor {
             health_actor.do_send(ReportTemplateLatency(duration_ms));
 
             match result {
-                Ok(Ok(rendered)) => rendered,
-                Ok(Err(e)) => {
-                    log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                    Err(crate::errors::DetailedError {
-                        error_source: Some(crate::errors::ErrorSource::Python(crate::actors::interpreter::PythonError {
-                            message: e.to_string(),
-                            traceback: format!("{:?}", e),
-                            line_number: None,
-                            filename: None,
-                        })),
-                        ..Default::default()
-                    })
-                }
+                Ok(inner) => match inner {
+                    Ok(render_res) => match render_res {
+                        Ok(rendered) => Ok(rendered),
+                        Err(e) => Err(e),
+                    },
+                    Err(mailbox_err) => {
+                        log::error!("Template renderer mailbox error: {}", mailbox_err);
+                        Err(crate::errors::DetailedError {
+                            error_source: None,
+                            ..Default::default()
+                        })
+                    }
+                },
                 Err(_) => {
                     log::error!("The template renderer timed out. The server is taking too long to respond.");
                     Err(crate::errors::DetailedError {
@@ -136,6 +136,7 @@ impl Handler<RenderMessage> for PageRendererActor {
                             traceback: "".to_string(),
                             line_number: None,
                             filename: None,
+                            source_code: None,
                         })),
                         ..Default::default()
                     })

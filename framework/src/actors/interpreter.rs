@@ -22,6 +22,7 @@ pub struct PythonError {
     pub traceback: String,
     pub line_number: Option<usize>,
     pub filename: Option<String>,
+    pub source_code: Option<String>,
 }
 
 impl fmt::Display for PythonError {
@@ -138,6 +139,7 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                     traceback: "".to_string(),
                     line_number: None,
                     filename: None,
+                    source_code: None,
                 })?.clone().into()
             } else {
                 self.modules
@@ -148,6 +150,7 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                         traceback: "".to_string(),
                         line_number: None,
                         filename: None,
+                        source_code: None,
                     })?
             };
 
@@ -165,6 +168,7 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                             traceback: "".to_string(),
                             line_number: None,
                             filename: None,
+                            source_code: None,
                         })?;
                     py_args.set_item(key, py_value).map_err(|e| pyerr_to_pyerror(e, py))?;
                 }
@@ -191,6 +195,7 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                 traceback: "".to_string(),
                 line_number: None,
                 filename: None,
+                source_code: None,
             })
         })?;
 
@@ -217,6 +222,7 @@ fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
 
     let mut filename = None;
     let mut line_number = None;
+    let mut source_code = None;
 
     if let Some(traceback) = e.traceback(py) {
         let mut current_tb: Option<pyo3::Bound<PyAny>> = Some(traceback.as_any().clone());
@@ -231,7 +237,14 @@ fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
                 if let Ok(code) = frame.getattr("f_code") {
                     if let Ok(fname) = code.getattr("co_filename") {
                         if let Ok(fname_str) = fname.extract::<String>() {
-                            filename = Some(fname_str);
+                            filename = Some(fname_str.clone());
+                            if let Ok(contents) = std::fs::read_to_string(fname_str) {
+                                if let Some(ln) = line_number {
+                                    let start = (ln as isize - 7).max(0) as usize;
+                                    let end = (ln + 6).min(contents.lines().count());
+                                    source_code = Some(contents.lines().skip(start).take(end - start).collect::<Vec<_>>().join("\n"));
+                                }
+                            }
                         }
                     }
                 }
@@ -248,5 +261,6 @@ fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
         traceback: traceback_str,
         line_number,
         filename,
+        source_code,
     }
 }
