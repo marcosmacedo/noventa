@@ -14,26 +14,51 @@ def initialize_database(db_url):
 
 pub const UTILS_PY: &str = r#"
 from sqlalchemy.inspection import inspect
-from sqlalchemy.orm import DeclarativeBase
 
-def orm_to_dict(obj):
-    return {c.key: getattr(obj, c.key) for c in inspect(obj).mapper.column_attrs}
+def orm_to_dict(obj, visited=None):
+    if visited is None:
+        visited = set()
+    
+    obj_id = id(obj)
+    if obj_id in visited:
+        return None
+    
+    visited.add(obj_id)
+
+    d = {c.key: getattr(obj, c.key) for c in inspect(obj).mapper.column_attrs}
+
+    for r in inspect(obj).mapper.relationships:
+        related_obj = getattr(obj, r.key)
+        if related_obj is not None:
+            if r.uselist:
+                d[r.key] = [orm_to_dict(o, visited) for o in related_obj]
+            else:
+                d[r.key] = orm_to_dict(related_obj, visited)
+    
+    visited.remove(obj_id)
+    return d
+
+from sqlalchemy.orm import object_mapper
+from sqlalchemy.orm.exc import UnmappedInstanceError
+
+def is_mapped_instance(obj):
+    try:
+        object_mapper(obj)
+        return True
+    except UnmappedInstanceError:
+        return False
+
+def deep_convert(data):
+    if isinstance(data, dict):
+        return {key: deep_convert(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [deep_convert(item) for item in data]
+    elif is_mapped_instance(data):
+        return orm_to_dict(data)
+    else:
+        return data
 
 def call_user_function(user_func, *args, **kwargs):
     result = user_func(*args, **kwargs)
-
-    if isinstance(result, list):
-        # Check the first element to see if it's a model instance
-        if result and hasattr(result[0], '__table__'):
-            return [orm_to_dict(item) for item in result]
-        else:
-            return result # It's a list of something else, return as is
-    elif hasattr(result, '__table__'):
-        return orm_to_dict(result)
-    elif isinstance(result, dict):
-        return result
-    
-    # If it's a simple type, it will be handled by pythonize, otherwise it might fail
-    return result
-
+    return deep_convert(result)
 "#;
