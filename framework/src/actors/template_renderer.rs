@@ -223,14 +223,16 @@ impl TemplateRendererActor {
             if let Some(detailed_error) = e.source().and_then(|s| s.downcast_ref::<DetailedError>()) {
                 return detailed_error.clone();
             }
+            let template_info = crate::errors::TemplateInfo {
+                name: e.name().unwrap_or(&msg.template_name).to_string(),
+                line: e.line().unwrap_or(0),
+                source: None,
+                detail: e.detail().unwrap_or("").to_string(),
+                traceback: Some(format!("{:?}", e)),
+            };
             DetailedError {
-                page: Some(crate::errors::TemplateInfo {
-                    name: msg.template_name.clone(),
-                    line: e.line().unwrap_or(0),
-                    source: None,
-                    detail: e.detail().unwrap_or("").to_string(),
-                    traceback: Some(format!("{:?}", e)),
-                }),
+                page: Some(template_info.clone()),
+                error_source: Some(ErrorSource::Template(template_info)),
                 ..Default::default()
             }
         })
@@ -400,14 +402,16 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             if let Some(detailed_error) = e.source().and_then(|s| s.downcast_ref::<DetailedError>()) {
                 return detailed_error.clone();
             }
+            let template_info = crate::errors::TemplateInfo {
+                name: e.name().unwrap_or(&msg.template_name).to_string(),
+                line: e.line().unwrap_or(0),
+                source: None,
+                detail: e.detail().unwrap_or("").to_string(),
+                traceback: Some(format!("{:?}", e)),
+            };
             DetailedError {
-                page: Some(crate::errors::TemplateInfo {
-                    name: msg.template_name.clone(),
-                    line: e.line().unwrap_or(0),
-                    source: None,
-                    detail: e.detail().unwrap_or("").to_string(),
-                    traceback: Some(format!("{:?}", e)),
-                }),
+                page: Some(template_info.clone()),
+                error_source: Some(ErrorSource::Template(template_info)),
                 ..Default::default()
             }
         })

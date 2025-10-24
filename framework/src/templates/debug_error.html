@@ -92,7 +92,20 @@
             </div>
             {% if error.error_source %}
             <div class="trace-item">
-                {% if error.error_source.Python %}
+                {% if error.error_source.Template %}
+                <div class="trace-header">Template Error</div>
+                <div class="trace-body">
+                    <p>{{ error.error_source.Template.detail }}</p>
+                    <div class="trace-location">
+                        In <strong>{{ error.error_source.Template.name }}</strong> at line <strong>{{ error.error_source.Template.line }}</strong>
+                    </div>
+                    {% if error.error_source.Template.source.Raw %}
+                    <div class="trace-source">
+                        <pre><code>{{ error.error_source.Template.source.Raw|e }}</code></pre>
+                    </div>
+                    {% endif %}
+                </div>
+                {% elif error.error_source.Python %}
                 <div class="trace-header">Python Error</div>
                 <div class="trace-body">
                     <p>{{ error.error_source.Python.message }}</p>
