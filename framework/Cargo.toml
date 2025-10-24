@@ -38,9 +38,17 @@ async-trait = "0.1.80"
 anyhow = "1.0.86"
 deadpool-redis = "0.22.0"
 path-clean = "1.0"
+cfg-if = "1.0"
+actix-rt = "2.11.0"
+actix-http = { version = "3.11.2", features = ["ws"] }
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"
 
 [build-dependencies]
 pyo3-build-config = "0.22.0"
+
+[dev-dependencies]
+tempfile = "3.23.0"
+bytes = "1.10.1"
+actix-test = "0.1.5"

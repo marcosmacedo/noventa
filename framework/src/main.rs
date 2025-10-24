@@ -316,3 +316,39 @@ async fn dev_ws(req: HttpRequest, stream: web::Payload, srv: web::Data<Addr<WsSe
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use tempfile::tempdir;
+
+    #[test]
+    #[ignore]
+    fn test_create_new_project() {
+        let dir = tempdir().unwrap();
+        let project_name = "test_project";
+        let project_path = dir.path().join(project_name);
+
+        // Create a dummy template directory
+        let template_dir = dir.path().join("framework/starter");
+        fs::create_dir_all(&template_dir).unwrap();
+        File::create(template_dir.join("cookiecutter.json")).unwrap();
+
+        // Mock the executable path
+        let mut exe_path = dir.path().to_path_buf();
+        exe_path.push("framework");
+        exe_path.push("target");
+        exe_path.push("debug");
+        exe_path.push("noventa");
+        fs::create_dir_all(exe_path.parent().unwrap()).unwrap();
+        File::create(&exe_path).unwrap();
+        let current_exe = std::env::current_exe().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        
+        let result = create_new_project(project_name);
+        assert!(result.is_ok());
+        
+        std::env::set_current_dir(current_exe.parent().unwrap().parent().unwrap().parent().unwrap().parent().unwrap()).unwrap();
+    }
+}

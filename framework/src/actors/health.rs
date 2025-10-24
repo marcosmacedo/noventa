@@ -169,3 +169,40 @@ impl HealthActor {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix::Actor;
+    use actix_rt::time;
+
+    #[actix_rt::test]
+    async fn test_health_actor_metrics() {
+        let addr = HealthActor::new().start();
+
+        // Report some data
+        addr.do_send(ReportRtt(10.0));
+        addr.do_send(ReportPythonLatency(5.0));
+        addr.do_send(ReportTemplateLatency(2.0));
+
+        // Wait for the messages to be processed
+        time::sleep(Duration::from_millis(100)).await;
+
+        // Get the health report
+        let health = addr.send(GetSystemHealth).await.unwrap();
+
+        // Check the metrics
+        let metrics = health.thirty_seconds;
+        assert_eq!(metrics.rtt.mean_ms, 10.0);
+        assert_eq!(metrics.python_interpreter.mean_ms, 5.0);
+        assert_eq!(metrics.template_renderer.mean_ms, 2.0);
+        assert_eq!(
+            metrics.python_interpreter.percentage_of_rtt,
+            Some(50.0)
+        );
+        assert_eq!(
+            metrics.template_renderer.percentage_of_rtt,
+            Some(20.0)
+        );
+    }
+}

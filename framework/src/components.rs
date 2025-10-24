@@ -46,3 +46,58 @@ pub fn scan_components(dir: &Path) -> std::io::Result<Vec<Component>> {
 
     Ok(components)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::{self, File};
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_scan_components() {
+        let dir = tempdir().unwrap();
+        let components_dir = dir.path();
+
+        // Component 1: logic and template
+        let comp1_dir = components_dir.join("comp1");
+        fs::create_dir(&comp1_dir).unwrap();
+        let mut logic1 = File::create(comp1_dir.join("comp1_logic.py")).unwrap();
+        logic1.write_all(b"print('hello')").unwrap();
+        let mut template1 = File::create(comp1_dir.join("template.html")).unwrap();
+        template1.write_all(b"<h1>Comp1</h1>").unwrap();
+
+        // Component 2: template only
+        let comp2_dir = components_dir.join("comp2");
+        fs::create_dir(&comp2_dir).unwrap();
+        let mut template2 = File::create(comp2_dir.join("template.html")).unwrap();
+        template2.write_all(b"<h2>Comp2</h2>").unwrap();
+        
+        // Sub-component
+        let sub_comp_dir = components_dir.join("nested/sub");
+        fs::create_dir_all(&sub_comp_dir).unwrap();
+        let mut sub_template = File::create(sub_comp_dir.join("template.html")).unwrap();
+        sub_template.write_all(b"<h3>Sub</h3>").unwrap();
+
+        let components = scan_components(components_dir).unwrap();
+        assert_eq!(components.len(), 3);
+
+        let mut component_ids: Vec<_> = components.iter().map(|c| c.id.clone()).collect();
+        component_ids.sort();
+        assert_eq!(component_ids, vec!["comp1", "comp2", "nested/sub"]);
+
+        for component in components {
+            if component.id == "comp1" {
+                assert!(component.logic_path.is_some());
+                assert!(component.logic_path.unwrap().ends_with("comp1_logic.py"));
+                assert_eq!(component.template_content, "<h1>Comp1</h1>");
+            } else if component.id == "comp2" {
+                assert!(component.logic_path.is_none());
+                assert_eq!(component.template_content, "<h2>Comp2</h2>");
+            } else if component.id == "nested/sub" {
+                assert!(component.logic_path.is_none());
+                assert_eq!(component.template_content, "<h3>Sub</h3>");
+            }
+        }
+    }
+}
