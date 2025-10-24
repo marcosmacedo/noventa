@@ -1,5 +1,5 @@
 use crate::errors::DetailedError;
-use minijinja::{context, Environment};
+use minijinja::Environment;
 use once_cell::sync::Lazy;
 
 static DEBUG_ERROR_TEMPLATE: &str = include_str!("debug_error.html");
@@ -12,7 +12,7 @@ static JINJA_ENV: Lazy<Environment<'static>> = Lazy::new(|| {
 });
 
 pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
-    log::debug!("Rendering structured error: {:?}", detailed_error);
+    log_detailed_error(detailed_error);
     let tmpl = JINJA_ENV.get_template("debug_error.html").unwrap();
 
     let mut context = std::collections::HashMap::new();
@@ -53,31 +53,84 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
     rendered
 }
 
-// pub fn render_debug_error(
-//     error_message: &str,
-//     traceback: &str,
-//     filename: &str,
-//     line_number: usize,
-// ) -> String {
-//     log::debug!("render_debug_error called for {}:{}", filename, line_number);
+pub fn log_detailed_error(detailed_error: &DetailedError) {
+    log::error!("");
+    if let Some(route) = &detailed_error.route {
+        log::error!("Page: {}", route);
+    }
+    if let Some(template) = &detailed_error.page {
+        log::error!("Template: {}", template.name);
+    }
+    if let Some(component) = &detailed_error.component {
+        log::error!("Component: {}", component.name);
+    }
+    log::error!("");
 
-//     let tmpl = JINJA_ENV.get_template("debug_error.html").unwrap();
-//     let mut rendered = tmpl
-//         .render(context! {
-//             error_message => error_message,
-//             traceback => traceback,
-//             filename => filename,
-//             line_number => line_number,
-//         })
-//         .unwrap_or_else(|e| {
-//             log::error!("Failed to render debug error page: {}", e);
-//             "<h1>Internal Server Error</h1><p>Could not render the debug error page.</p>"
-//                 .to_string()
-//         });
+    if let Some(error_source) = &detailed_error.error_source {
+        match error_source {
+            crate::errors::ErrorSource::Python(py_err) => {
+                log::error!("Error: {}", py_err.message);
+                log::error!("Type: Python Error");
+                if let Some(path) = &py_err.filename {
+                    log::error!("File: {}", path);
+                }
+                log::error!("");
 
-//     add_marker_and_scripts(&mut rendered);
-//     rendered
-// }
+                if let (Some(code), Some(line_num)) = (py_err.source_code.as_ref(), py_err.line_number) {
+                    let lines: Vec<_> = code.lines().collect();
+                    let start_line = (line_num as isize - 7).max(0) as usize;
+                    let end_line = (line_num + 7).min(lines.len());
+
+                    for i in start_line..end_line {
+                        let line = lines[i];
+                        let num = i + 1;
+                        let is_highlighted = num == line_num;
+                        if is_highlighted {
+                            log::error!("> {:>4} | {}", num, line);
+                        } else {
+                            log::error!("  {:>4} | {}", num, line);
+                        }
+                    }
+                }
+
+                log::error!("");
+                log::error!("Backtrace:");
+                log::error!("{}", py_err.traceback);
+            }
+            crate::errors::ErrorSource::Template(tmpl_err) => {
+                log::error!("");
+                log::error!("Error: {}", tmpl_err.detail);
+                log::error!("Type: Template Error");
+                log::error!("File: {}", tmpl_err.name);
+                log::error!("");
+
+                if let Some(code) = &tmpl_err.source_code {
+                    let lines: Vec<_> = code.lines().collect();
+                    let line_num = tmpl_err.line;
+                    let start_line = (line_num as isize - 7).max(0) as usize;
+                    let end_line = (line_num + 7).min(lines.len());
+
+                    for i in start_line..end_line {
+                        let line = lines[i];
+                        let num = i + 1;
+                        let is_highlighted = num == line_num;
+                        if is_highlighted {
+                            log::error!("> {:>4} | {}", num, line);
+                        } else {
+                            log::error!("  {:>4} | {}", num, line);
+                        }
+                    }
+                }
+                if let Some(traceback) = &tmpl_err.traceback {
+                    log::error!("");
+                    log::error!("Traceback:");
+                    log::error!("{}", traceback);
+                }
+            }
+        }
+    }
+}
+
 
 fn add_marker_and_scripts(rendered: &mut String) {
     let timestamp = std::time::SystemTime::now()
