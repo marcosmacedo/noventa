@@ -3,6 +3,20 @@ use log::{Record, Level};
 use std::io::Write;
 use chrono::Local;
 use colored::*;
+use rand::Rng;
+
+const INSPIRING_PHRASES: [&str; 10] = [
+    "Code is poetry — and the browser is your canvas.",
+    "Web development is where logic meets art.",
+    "Good design is invisible; great development makes it feel alive.",
+    "Every broken layout is a step closer to mastery.",
+    "You’re not just building websites — you’re building experiences.",
+    "A great web app doesn’t just load fast; it earns trust fast.",
+    "Your code might run in a browser, but it lives in someone’s daily life.",
+    "The best developers write less — but say more.",
+    "Design for humans first; devices second.",
+    "A seamless UX is when users forget the interface exists.",
+];
 
 pub fn init_logger(log_level: &str) {
     let mut builder = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level));
@@ -34,7 +48,7 @@ fn format_log(buf: &mut Formatter, record: &Record) -> std::io::Result<()> {
     writeln!(buf, "{}", message)
 }
 
-pub fn print_banner(host: &str, port: u16) {
+pub fn print_banner(host: &str, port: u16, dev_mode: bool) {
     // Define the gradient colors based on the image
     let pink = (255, 64, 129);    // Vibrant Pink
     let mid_pink = (224, 80, 149);
@@ -75,8 +89,18 @@ pub fn print_banner(host: &str, port: u16) {
     println!("{}", banner_line4);
     println!("{}", banner_line5);
     println!("{}", banner_line6);
-    println!();
     println!("{}", "🚀 Noventa is running!".green());
+
+    // Easter Egg: 1% chance to print an inspiring phrase in dev mode
+    if dev_mode {
+        let mut rng = rand::thread_rng();
+        if rng.gen_range(0..100) < 1 {
+            println!("{}", "\n✨ Lucky Message ✨".yellow());
+            let phrase = INSPIRING_PHRASES[rng.gen_range(0..INSPIRING_PHRASES.len())];
+            println!("   \"{}\" - ChatGPT\n", phrase.italic().cyan());
+        }
+    }
+
     println!("{}", format!("   - Address: http://{}:{}", host, port).cyan());
     println!("{}", "   - Happy coding!".cyan());
     println!("{}", border.purple());
