@@ -33,6 +33,7 @@ pub struct ComponentInfo {
 #[derive(Debug, Serialize, Clone)]
 pub enum ErrorSource {
     Python(PythonError),
+    Template(TemplateInfo),
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
