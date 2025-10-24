@@ -65,6 +65,7 @@ pub struct Config {
     pub static_path: Option<String>,
     pub static_url_prefix: Option<String>,
     pub session: Option<SessionConfig>,
+    pub log_level: Option<String>,
 }
 
 impl Config {
@@ -87,12 +88,10 @@ cfg_if! {
                 Err(e) => {
                     match e {
                         ConfigError::Io(_) => {
-                            println!("Error: config.yaml not found or cannot be read.");
-                            println!("Please ensure the file exists in the current directory and has the correct permissions.");
+                            println!("I couldn't find the `config.yaml` file. Make sure it's in the same directory you're running the application from.");
                         },
                         ConfigError::Parse(err) => {
-                            println!("Error: Could not parse config.yaml.");
-                            println!("Please check the file for syntax errors.");
+                            println!("There seems to be a syntax error in your `config.yaml` file. Please check the formatting.");
                             println!("Details: {}", err);
                         }
                     }

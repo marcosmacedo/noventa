@@ -29,7 +29,7 @@ pub async fn handle_multipart(
     };
 
     if let Err(e) = std::fs::create_dir_all(&temp_dir) {
-        log::error!("Failed to create temporary directory '{}': {}", temp_dir.display(), e);
+        log::error!("We couldn't create the temporary directory '{}': {}. Please check your permissions.", temp_dir.display(), e);
     }
 
     while let Some(item) = multipart.next().await {
@@ -61,7 +61,7 @@ pub async fn handle_multipart(
                     if buffer.len() + chunk.len() > max_size {
                         let temp_file_path = temp_dir.join(uuid::Uuid::new_v4().to_string());
                         let absolute_path = std::fs::canonicalize(&temp_file_path).unwrap_or_else(|_| temp_file_path.clone());
-                        log::info!("Streaming file upload '{}' to disk: {}", filename, absolute_path.display());
+                        log::info!("Receiving file '{}' and streaming it to disk at: {}", filename, absolute_path.display());
                         let mut file = std::fs::File::create(&temp_file_path).unwrap();
                         file.write_all(&buffer).unwrap();
                         file.write_all(&chunk).unwrap();

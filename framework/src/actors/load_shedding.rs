@@ -80,13 +80,13 @@ impl LoadSheddingActor {
         // Update state machine
         if self.current_p95_latency_ms > self.baseline_latency_ms * LATENCY_THRESHOLD_MULTIPLIER && self.baseline_latency_ms > 0.0 {
             if matches!(self.status, HealthStatus::Healthy) {
-                log::warn!("Latency high, entering shedding mode. P95: {:.2}ms, Baseline: {:.2}ms", self.current_p95_latency_ms, self.baseline_latency_ms);
+                log::warn!("Hold on tight! The system is under high load (P95 Latency: {:.2}ms). We're activating defense mode to keep things running smoothly.", self.current_p95_latency_ms);
                 self.status = HealthStatus::Shedding;
                 self.concurrency_limit = Some(self.active_requests);
             }
         } else {
             if matches!(self.status, HealthStatus::Shedding) {
-                log::info!("Latency recovered, exiting shedding mode. P95: {:.2}ms, Baseline: {:.2}ms", self.current_p95_latency_ms, self.baseline_latency_ms);
+                log::info!("Phew! System load has returned to normal (P95 Latency: {:.2}ms). Deactivating defense mode.", self.current_p95_latency_ms);
                 self.status = HealthStatus::Healthy;
                 self.concurrency_limit = None;
             }
@@ -155,7 +155,7 @@ impl Handler<RenderMessage> for LoadSheddingActor {
                 Ok(Ok(rendered)) => Ok(rendered),
                 Ok(Err(e)) => Err(e),
                 Err(e) => {
-                    log::error!("Mailbox error in load shedder: {}", e);
+                    log::error!("A mailbox error occurred in the load shedder: {}. This might indicate a problem with the server's internal communication.", e);
                     Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error"))
                 }
             }

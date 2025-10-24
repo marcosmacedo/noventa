@@ -47,6 +47,41 @@ pub fn scan_components(dir: &Path) -> std::io::Result<Vec<Component>> {
     Ok(components)
 }
 
+pub fn scan_single_component(path: &Path, base_path: &Path) -> std::io::Result<Component> {
+    let parent_dir = path.parent().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Component parent directory not found"))?;
+    let component_id = parent_dir.strip_prefix(base_path).map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Component path is not relative to the components directory"))?.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Component path contains invalid UTF-8"))?.to_string();
+
+    let mut logic_path = None;
+    let mut template_path = None;
+    let mut template_content = None;
+
+    for entry in WalkDir::new(parent_dir).into_iter().filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_file() {
+            let file_name = path.file_name().unwrap().to_string_lossy();
+            if file_name.ends_with("_logic.py") {
+                logic_path = Some(path.to_string_lossy().into_owned());
+            } else if file_name.ends_with(".html") {
+                template_path = Some(path.to_string_lossy().into_owned());
+                template_content = Some(std::fs::read_to_string(path)?);
+            }
+        }
+    }
+
+    match (template_path, template_content) {
+        (Some(tp), Some(tc)) => Ok(Component {
+            id: component_id,
+            logic_path,
+            template_path: tp,
+            template_content: tc,
+        }),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Component '{}' is missing a template.html file.", component_id),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,4 +135,5 @@ mod tests {
             }
         }
     }
+
 }

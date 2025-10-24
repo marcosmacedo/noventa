@@ -35,7 +35,7 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for DevWebSocket {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
         match msg {
             Ok(ws::Message::Ping(msg)) => ctx.pong(&msg),
-            Err(e) => log::error!("WebSocket error: {:?}", e),
+            Err(e) => log::error!("The live-reload connection failed: {:?}. Your browser might not auto-refresh when you save files. Try refreshing the page manually.", e),
             _ => (),
         }
     }

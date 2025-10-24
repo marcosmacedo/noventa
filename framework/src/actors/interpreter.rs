@@ -1,5 +1,4 @@
 use crate::actors::page_renderer::HttpRequestInfo;
-use crate::components::Component;
 use crate::config::CONFIG;
 use crate::dto::python_request::PyRequest;
 use actix::prelude::*;
@@ -24,8 +23,8 @@ pub struct PythonFunctionResult {
 
 #[derive(Message, Clone)]
 #[rtype(result = "Result<PythonFunctionResult, Error>")]
-pub struct ExecutePythonFunction {
-    pub component_name: String,
+pub struct ExecuteFunction {
+    pub module_path: String,
     pub function_name: String,
     pub request: Arc<HttpRequestInfo>,
     pub args: Option<HashMap<String, Value>>,
@@ -34,41 +33,29 @@ pub struct ExecutePythonFunction {
 
 use uuid::Uuid;
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 #[rtype(result = "()")]
-pub struct RescanComponents;
+pub struct ReloadInterpreter;
+
 
 // Define the Python interpreter actor
 pub struct PythonInterpreterActor {
     id: Uuid,
     modules: HashMap<String, Py<PyModule>>,
-    components: Vec<Component>,
     db_instance: Option<Py<PyAny>>,
     dev_mode: bool,
 }
 
 impl PythonInterpreterActor {
-    pub fn new(components: Vec<Component>, dev_mode: bool) -> Self {
+    pub fn new(dev_mode: bool) -> Self {
         Self {
             id: Uuid::new_v4(),
             modules: HashMap::new(),
-            components,
             db_instance: None,
             dev_mode,
         }
     }
 
-    fn scan_components(&mut self) {
-        if self.dev_mode {
-            log::info!("Re-scanning components...");
-            let components = crate::components::scan_components(std::path::Path::new("./components")).unwrap_or_else(|e| {
-                log::error!("Failed to discover components: {}", e);
-                vec![]
-            });
-            log::info!("Found {} components.", components.len());
-            self.components = components;
-        }
-    }
 }
 
 impl Actor for PythonInterpreterActor {
@@ -88,81 +75,34 @@ impl Actor for PythonInterpreterActor {
                                 self.db_instance = Some(db_instance.into());
                             }
                             Err(e) => {
-                                log::error!("Failed to initialize database: {}", e);
+                                log::error!("Oh no! We couldn't initialize the database. Your `db.py` script ran into an error: {}", e);
                             }
                         },
                         Err(e) => {
-                            log::error!("Failed to find initialize_database function: {}", e);
+                            log::error!("We couldn't find the `initialize_database` function in your `db.py` file: {}. Did you remember to define it?", e);
                         }
                     },
                     Err(e) => {
-                        log::error!("Failed to load db.py: {}", e);
+                        log::error!("We couldn't load `db.py`: {}. Please make sure the file exists and has the correct permissions.", e);
                     }
                 }
             }
 
-            if !self.dev_mode {
-                // 2️⃣ Import each component by absolute path
-                let importlib = py.import("importlib").unwrap();
-                let import_module = importlib.getattr("import_module").unwrap();
-
-                for component in &self.components {
-                    if let Some(logic_path) = &component.logic_path {
-                        let module_path = match path_to_module(logic_path) {
-                            Ok(path) => path,
-                            Err(e) => {
-                                log::error!("Failed to convert path to module for {}: {}", logic_path, e);
-                                continue;
-                            }
-                        };
-
-                        match import_module.call1((module_path,)) {
-                            Ok(module) => {
-                                self.modules.insert(
-                                    component.id.clone(),
-                                    module.downcast::<PyModule>().unwrap().clone().into(),
-                                );
-                            }
-                            Err(e) => {
-                                log::error!("Failed to load component {}: {}", component.id, e);
-                            }
-                        }
-                    }
-                }
-            }
         });
     }
 }
 
-// Define the handler for the ExecutePythonFunction message
-impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
+// Define the handler for the ExecuteFunction message
+impl Handler<ExecuteFunction> for PythonInterpreterActor {
     type Result = Result<PythonFunctionResult, Error>;
 
-    fn handle(&mut self, msg: ExecutePythonFunction, _ctx: &mut Self::Context) -> Self::Result {
-        log::info!(
-            "Interpreter {} received request for component '{}'",
+    fn handle(&mut self, msg: ExecuteFunction, _ctx: &mut Self::Context) -> Self::Result {
+        log::trace!(
+            "Interpreter {} received request for module '{}' and function '{}'",
             self.id,
-            msg.component_name
+            msg.module_path,
+            msg.function_name
         );
-
-        let module_path = if self.dev_mode {
-            let component = self
-                .components
-                .iter()
-                .find(|c| c.id == msg.component_name)
-                .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found in dev mode"))?;
-
-            if let Some(logic_path) = &component.logic_path {
-                path_to_module(logic_path).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?
-            } else {
-                return Err(Error::new(ErrorKind::NotFound, "Component logic not found"));
-            }
-        } else {
-            // In non-dev mode, we don't need to calculate the path,
-            // but we need a placeholder for the logic below.
-            // The module will be fetched from `self.modules`.
-            String::new()
-        };
 
         let py_request = PyRequest { inner: msg.request };
         let py_session = crate::dto::python_session::PySession::new(msg.session_manager);
@@ -171,15 +111,15 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
             let module = if self.dev_mode {
                 let importlib = py.import("importlib").map_err(|e| pyerr_to_io_error(e, py))?;
                 let import_module = importlib.getattr("import_module").map_err(|e| pyerr_to_io_error(e, py))?;
-                let module = import_module.call1((module_path,)).map_err(|e| pyerr_to_io_error(e, py))?;
+                let module = import_module.call1((&msg.module_path,)).map_err(|e| pyerr_to_io_error(e, py))?;
                 let reload = importlib.getattr("reload").map_err(|e| pyerr_to_io_error(e, py))?;
                 reload.call1((module.clone(),)).map_err(|e| pyerr_to_io_error(e, py))?;
                 module.downcast::<PyModule>().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?.clone().into()
             } else {
                 self.modules
-                    .get(&msg.component_name)
+                    .get(&msg.module_path)
                     .map(|m| m.clone_ref(py))
-                    .ok_or_else(|| Error::new(ErrorKind::NotFound, "Component not found"))?
+                    .ok_or_else(|| Error::new(ErrorKind::NotFound, "Module not found"))?
             };
 
             let func = module.getattr(py, &msg.function_name).map_err(|e| pyerr_to_io_error(e, py))?;
@@ -213,11 +153,13 @@ impl Handler<ExecutePythonFunction> for PythonInterpreterActor {
     }
 }
 
-impl Handler<RescanComponents> for PythonInterpreterActor {
+
+impl Handler<ReloadInterpreter> for PythonInterpreterActor {
     type Result = ();
 
-    fn handle(&mut self, _msg: RescanComponents, _ctx: &mut Self::Context) -> Self::Result {
-        self.scan_components();
+    fn handle(&mut self, _msg: ReloadInterpreter, ctx: &mut Self::Context) -> Self::Result {
+        log::debug!("Interpreter {} received reload request", self.id);
+        self.started(ctx);
     }
 }
 

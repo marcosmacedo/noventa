@@ -47,7 +47,7 @@ pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
         }
         registered_routes.insert(route_key, is_dynamic);
 
-        log::info!("Registering route: {} -> {:?}", route, template_path);
+        log::debug!("Route registered: {} -> {}", route, template_path.display());
         final_routes.push((route, template_path));
     }
 
@@ -237,15 +237,15 @@ pub async fn handle_page(
         Ok(Ok(rendered)) => HttpResponse::Ok().body(rendered),
         Ok(Err(e)) => {
             if e.kind() == minijinja::ErrorKind::InvalidOperation && e.to_string() == "SHEDDING" {
-                log::warn!("Shedding request due to high latency.");
+                log::warn!("High traffic alert! We're protecting the server from overload by shedding some requests. If this message appears frequently, it might be time to scale up your resources.");
                 HttpResponse::ServiceUnavailable().body("Service Unavailable: Shedding load")
             } else {
-                log::error!("Error rendering page: {}", e);
+                log::error!("Oh no! A page template failed to render: {}. This could be a typo in the template or an issue in the component's Python code. Check the file for errors.", e);
                 HttpResponse::InternalServerError().finish()
             }
         }
         Err(e) => {
-            log::error!("Mailbox error: {}", e);
+            log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
             HttpResponse::InternalServerError().finish()
         }
     }
@@ -254,7 +254,7 @@ pub async fn health_check(health_actor: web::Data<Addr<HealthActor>>) -> impl Re
     match health_actor.send(GetSystemHealth).await {
         Ok(health) => HttpResponse::Ok().json(health),
         Err(e) => {
-            log::error!("Failed to get system health: {}", e);
+            log::error!("Could not retrieve system health: {}. The health check actor might be experiencing issues.", e);
             HttpResponse::InternalServerError().finish()
         }
     }

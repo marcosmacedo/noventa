@@ -1,5 +1,5 @@
 use crate::actors::health::{HealthActor, ReportTemplateLatency, ReportPythonLatency};
-use crate::actors::interpreter::{ExecutePythonFunction, PythonInterpreterActor};
+use crate::actors::interpreter::{ExecuteFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
@@ -73,8 +73,11 @@ impl TemplateRendererActor {
                 let mut kwargs_map_post = action_component_call.kwargs.clone();
                 kwargs_map_post.extend(form_data_value);
 
-                let execute_fn_msg = ExecutePythonFunction {
-                    component_name: action_component_call.name.clone(),
+                let component = self.components.iter().find(|c| c.id == action_component_call.name).unwrap();
+                let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
+
+                let execute_fn_msg = ExecuteFunction {
+                    module_path,
                     function_name: format!("action_{}", action),
                     request: msg.request_info.clone(),
                     args: Some(kwargs_map_post),
@@ -123,8 +126,11 @@ impl TemplateRendererActor {
                 let context = if name == form_component_id {
                     action_context.as_ref().as_ref().unwrap().clone()
                 } else {
-                    let execute_fn_msg = ExecutePythonFunction {
-                        component_name: name.clone(),
+                    let component = components_clone.iter().find(|c| c.id == name).unwrap();
+                    let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
+
+                    let execute_fn_msg = ExecuteFunction {
+                        module_path,
                         function_name: "load_template_context".to_string(),
                         request: request_info_clone.clone(),
                         args: Some(kwargs_map),
@@ -224,25 +230,12 @@ impl TemplateRendererActor {
         Ok(result)
     }
 
-    fn scan_components(&mut self) {
-        if self.dev_mode {
-            log::info!("Re-scanning components...");
-            let components = crate::components::scan_components(std::path::Path::new("./components")).unwrap_or_else(|e| {
-                log::error!("Failed to discover components: {}", e);
-                vec![]
-            });
-            log::info!("Found {} components.", components.len());
-            self.components = components;
-        }
-    }
 }
 
 impl Actor for TemplateRendererActor {
     type Context = SyncContext<Self>;
 
-    fn started(&mut self, _ctx: &mut Self::Context) {
-        self.scan_components();
-    }
+    fn started(&mut self, _ctx: &mut Self::Context) {}
 }
 
 // Message for rendering a template
@@ -254,9 +247,13 @@ pub struct RenderTemplate {
     pub session_manager: Addr<SessionManagerActor>,
 }
 
-#[derive(Message)]
+#[derive(Message, Clone)]
 #[rtype(result = "()")]
-pub struct RescanComponents;
+pub struct UpdateComponents(pub Vec<Component>);
+
+#[derive(Message, Clone)]
+#[rtype(result = "()")]
+pub struct UpdateSingleComponent(pub Component);
 
 impl Handler<RenderTemplate> for TemplateRendererActor {
     type Result = Result<String, Error>;
@@ -285,8 +282,11 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let execute_fn_msg = ExecutePythonFunction {
-                    component_name: name.clone(),
+                let component = components_clone.iter().find(|c| c.id == name).unwrap();
+                let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
+
+                let execute_fn_msg = ExecuteFunction {
+                    module_path,
                     function_name: "load_template_context".to_string(),
                     request: request_info_clone.clone(),
                     args: Some(kwargs_map),
@@ -317,11 +317,11 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                         Ok(Value::from_safe_string(rendered_component))
                     }
                     Ok(Err(e)) => {
-                        log::error!("Error executing python function: {}", e);
+                        log::error!("Oh no! A Python function called from a template crashed: {}. We couldn't render the page.", e);
                         Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
                     }
                     Err(e) => {
-                        log::error!("Mailbox error: {}", e);
+                        log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
                         Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
                     }
                 }
@@ -332,10 +332,42 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
     }
 }
 
-impl Handler<RescanComponents> for TemplateRendererActor {
+impl Handler<UpdateComponents> for TemplateRendererActor {
     type Result = ();
 
-    fn handle(&mut self, _msg: RescanComponents, _ctx: &mut Self::Context) -> Self::Result {
-        self.scan_components();
+    fn handle(&mut self, msg: UpdateComponents, _ctx: &mut Self::Context) -> Self::Result {
+        self.components = msg.0;
     }
+}
+
+impl Handler<UpdateSingleComponent> for TemplateRendererActor {
+    type Result = ();
+
+    fn handle(&mut self, msg: UpdateSingleComponent, _ctx: &mut Self::Context) -> Self::Result {
+        if let Some(component) = self.components.iter_mut().find(|c| c.id == msg.0.id) {
+            *component = msg.0;
+        } else {
+            self.components.push(msg.0);
+        }
+    }
+}
+
+fn path_to_module(path_str: &str) -> Result<String, std::io::Error> {
+    let path = std::path::Path::new(path_str);
+    
+    // Clean the path to remove "./"
+    let cleaned_path = if path.starts_with("./") {
+        path.strip_prefix("./").unwrap()
+    } else {
+        path
+    };
+
+    // Convert to string and remove the .py extension
+    let module_str = cleaned_path.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Path contains invalid UTF-8"))?;
+    let module_str_no_ext = module_str.strip_suffix(".py").unwrap_or(module_str);
+
+    // Replace slashes with dots for Python import syntax
+    let module_path = module_str_no_ext.replace("/", ".");
+
+    Ok(module_path)
 }

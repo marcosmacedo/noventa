@@ -41,6 +41,8 @@ path-clean = "1.0"
 cfg-if = "1.0"
 actix-rt = "2.11.0"
 actix-http = { version = "3.11.2", features = ["ws"] }
+chrono = "0.4.42"
+colored = "3.0.0"
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"

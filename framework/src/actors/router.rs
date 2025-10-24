@@ -30,12 +30,12 @@ impl Handler<ReloadRoutes> for RouterActor {
     type Result = ();
 
     fn handle(&mut self, _msg: ReloadRoutes, _ctx: &mut Context<Self>) {
-        log::info!("Reloading routes...");
+        log::debug!("A file change was detected. We're reloading the routes now!");
         let pages_dir = Path::new("./pages");
         let new_routes = routing::get_routes(pages_dir);
         let mut routes = self.routes.write().unwrap();
         *routes = new_routes;
-        log::info!("Routes reloaded.");
+        log::debug!("Routes have been successfully reloaded.");
     }
 }
 
