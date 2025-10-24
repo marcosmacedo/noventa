@@ -88,7 +88,7 @@ impl Actor for PageRendererActor {
 }
 
 #[derive(Message, Clone)]
-#[rtype(result = "Result<String, minijinja::Error>")]
+#[rtype(result = "Result<String, crate::errors::DetailedError>")]
 pub struct RenderMessage {
     pub template_path: String,
     pub request_info: Arc<HttpRequestInfo>,
@@ -96,7 +96,7 @@ pub struct RenderMessage {
 }
 
 impl Handler<RenderMessage> for PageRendererActor {
-    type Result = ResponseFuture<Result<String, minijinja::Error>>;
+    type Result = ResponseFuture<Result<String, crate::errors::DetailedError>>;
 
     fn handle(&mut self, msg: RenderMessage, _ctx: &mut Context<Self>) -> Self::Result {
         let template_renderer = self.template_renderer.clone();
@@ -115,24 +115,30 @@ impl Handler<RenderMessage> for PageRendererActor {
             health_actor.do_send(ReportTemplateLatency(duration_ms));
 
             match result {
-                Ok(Ok(Ok(rendered))) => Ok(rendered),
-                Ok(Ok(Err(e))) => {
-                    log::error!("Oh no! A page template failed to render: {}. This could be a typo in the template or an issue in the component's Python code. Check the file for errors.", e);
-                    Err(e)
-                }
+                Ok(Ok(rendered)) => rendered,
                 Ok(Err(e)) => {
                     log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                    Err(minijinja::Error::new(
-                        minijinja::ErrorKind::InvalidOperation,
-                        "Mailbox error",
-                    ))
+                    Err(crate::errors::DetailedError {
+                        error_source: Some(crate::errors::ErrorSource::Python(crate::actors::interpreter::PythonError {
+                            message: e.to_string(),
+                            traceback: format!("{:?}", e),
+                            line_number: None,
+                            filename: None,
+                        })),
+                        ..Default::default()
+                    })
                 }
                 Err(_) => {
                     log::error!("The template renderer timed out. The server is taking too long to respond.");
-                    Err(minijinja::Error::new(
-                        minijinja::ErrorKind::InvalidOperation,
-                        "Timeout waiting for template renderer",
-                    ))
+                    Err(crate::errors::DetailedError {
+                        error_source: Some(crate::errors::ErrorSource::Python(crate::actors::interpreter::PythonError {
+                            message: "Timeout".to_string(),
+                            traceback: "".to_string(),
+                            line_number: None,
+                            filename: None,
+                        })),
+                        ..Default::default()
+                    })
                 }
             }
         })

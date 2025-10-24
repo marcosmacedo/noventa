@@ -221,6 +221,7 @@ pub async fn handle_page(
     session: Session,
     template_path: String,
     path_params: HashMap<String, String>,
+    dev_mode: bool,
 ) -> HttpResponse {
     let (form_data, files) = parse_request_body(&req, payload).await;
     let request_info = build_http_request_info(&req, form_data, files, path_params, &session);
@@ -235,14 +236,13 @@ pub async fn handle_page(
 
     match renderer.send(render_msg).await {
         Ok(Ok(rendered)) => HttpResponse::Ok().body(rendered),
-        Ok(Err(e)) => {
-            if e.kind() == minijinja::ErrorKind::InvalidOperation && e.to_string() == "SHEDDING" {
-                log::warn!("High traffic alert! We're protecting the server from overload by shedding some requests. If this message appears frequently, it might be time to scale up your resources.");
-                HttpResponse::ServiceUnavailable().body("Service Unavailable: Shedding load")
-            } else {
-                log::error!("Oh no! A page template failed to render: {}. This could be a typo in the template or an issue in the component's Python code. Check the file for errors.", e);
-                HttpResponse::InternalServerError().finish()
+        Ok(Err(mut detailed_error)) => {
+            if dev_mode {
+                detailed_error.route = Some(req.path().to_string());
+                let html = crate::templates::render_structured_debug_error(&detailed_error);
+                return HttpResponse::InternalServerError().content_type("text/html").body(html);
             }
+            HttpResponse::InternalServerError().finish()
         }
         Err(e) => {
             log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
@@ -270,7 +270,8 @@ pub async fn dynamic_route_handler(
     let path = req.path().to_string();
     match router.send(MatchRoute(path)).await {
         Ok(Some((template_path, path_params))) => {
-            handle_page(req, payload, renderer, session, template_path, path_params).await
+            let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
+            handle_page(req, payload, renderer, session, template_path, path_params, dev_mode).await
         }
         Ok(None) => HttpResponse::NotFound().finish(),
         Err(_) => HttpResponse::InternalServerError().finish(),

@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug (Windows)",
+      "type": "cppvsdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/framework/target/debug/noventa.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "/Users/marcos/Documents/page",
+      "environment": [],
+      "console": "externalTerminal",
+      "preLaunchTask": "cargo build"
+    },
+    {
+      "name": "Debug (Linux/macOS)",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/framework/target/debug/noventa",
+      "args": [],
+      "cwd": "/Users/marcos/Documents/page",
+      "preLaunchTask": "cargo build"
+    }
+  ]
+}
