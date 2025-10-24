@@ -219,7 +219,19 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     // middleware type consistent across configurations.
     use std::sync::Arc as StdArc;
     let (runtime_store, runtime_secret): (session::RuntimeSessionStore, Key) = if let Some(session_config) = &config::CONFIG.session {
-        let secret_key = Key::from(session_config.secret_key.as_bytes());
+        let secret_key_bytes = session_config.secret_key.as_bytes();
+        let secret_key = match Key::try_from(secret_key_bytes) {
+            Ok(key) => key,
+            Err(e) => {
+                println!("Error: Invalid `secret_key` in config.yaml.");
+                println!(
+                    "The key must be at least 64 bytes long, but it is currently {} bytes.",
+                    secret_key_bytes.len()
+                );
+                println!("Details: {}", e);
+                std::process::exit(1);
+            }
+        };
         let store = match session_config.backend {
             config::SessionBackend::Cookie => {
                 session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()))
