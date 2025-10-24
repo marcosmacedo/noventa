@@ -13,7 +13,7 @@
             padding: 2rem;
         }
         .container {
-            max-width: 800px;
+            max-width: 80vw;
             margin: 0 auto;
             background-color: #ffffff;
             border: 1px solid #dee2e6;
@@ -68,22 +68,38 @@
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
             font-size: 0.875rem;
         }
+        .code-snippet {
+            background-color: #f1f1f1;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre;
+            overflow-x: auto;
+        }
+        .line {
+            display: block;
+        }
+        .line.highlight {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Application Error</h1>
+            <h1>Noventa: Application Error</h1>
         </div>
         <div class="content">
             <div class="trace-item">
                 <div class="trace-header">Error Details</div>
                 <div class="trace-body">
                     {% if error.route %}
-                        <p><strong>Route:</strong> {{ error.route }}</p>
+                        <p><strong>Page:</strong> {{ error.route }}</p>
                     {% endif %}
                     {% if error.page %}
-                        <p><strong>Page:</strong> {{ error.page.name }}</p>
+                        <p><strong>Template:</strong> {{ error.page.name }}</p>
                     {% endif %}
                     {% if error.component %}
                         <p><strong>Component:</strong> {{ error.component.name }}</p>
@@ -99,9 +115,11 @@
                     <div class="trace-location">
                         In <strong>{{ error.error_source.Template.name }}</strong> at line <strong>{{ error.error_source.Template.line }}</strong>
                     </div>
-                    {% if error.error_source.Template.source.Raw %}
-                    <div class="trace-source">
-                        <pre><code>{{ error.error_source.Template.source.Raw|e }}</code></pre>
+                    {% if code_snippet %}
+                    <div class="code-snippet">
+                        {% for line in code_snippet %}
+                            <span class="line{% if line.highlight %} highlight{% endif %}"><span class="line-number">{{ line.number }}</span>{{ line.content }}</span>
+                        {% endfor %}
                     </div>
                     {% endif %}
                 </div>
@@ -112,6 +130,13 @@
                     <div class="trace-location">
                         In <strong>{% if error.error_source.Python.filename %}{{ error.error_source.Python.filename }}{% else %}Unknown{% endif %}</strong> at line <strong>{% if error.error_source.Python.line_number %}{{ error.error_source.Python.line_number }}{% else %}0{% endif %}</strong>
                     </div>
+                    {% if code_snippet %}
+                    <div class="code-snippet">
+                        {% for line in code_snippet %}
+                            <span class="line{% if line.highlight %} highlight{% endif %}"><span class="line-number">{{ line.number }}</span>{{ line.content }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                     <div class="traceback">
                         <pre><code>{{ error.error_source.Python.traceback|e }}</code></pre>
                     </div>

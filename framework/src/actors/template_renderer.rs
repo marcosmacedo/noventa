@@ -58,6 +58,7 @@ impl TemplateRendererActor {
                 name: msg.template_name.clone(),
                 line: e.line().unwrap_or(0),
                 source: None,
+                source_code: None,
                 detail: e.detail().unwrap_or("").to_string(),
                 traceback: Some(format!("{:?}", e)),
             }),
@@ -68,6 +69,7 @@ impl TemplateRendererActor {
                 name: msg.template_name.clone(),
                 line: 0,
                 source: None,
+                source_code: None,
                 detail: e.to_string(),
                 traceback: Some(format!("{:?}", e)),
             }),
@@ -126,6 +128,7 @@ impl TemplateRendererActor {
                                 traceback: format!("{:?}", e),
                                 line_number: None,
                                 filename: None,
+                                source_code: None,
                             })),
                             ..Default::default()
                         });
@@ -227,6 +230,20 @@ impl TemplateRendererActor {
                 name: e.name().unwrap_or(&msg.template_name).to_string(),
                 line: e.line().unwrap_or(0),
                 source: None,
+                source_code: {
+                    let filename = e.name().unwrap_or(&msg.template_name);
+                    if let Ok(contents) = std::fs::read_to_string(filename) {
+                        if let Some(ln) = e.line() {
+                            let start = (ln as isize - 7).max(0) as usize;
+                            let end = (ln + 6).min(contents.lines().count());
+                            Some(contents.lines().skip(start).take(end - start).collect::<Vec<_>>().join("\n"))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                },
                 detail: e.detail().unwrap_or("").to_string(),
                 traceback: Some(format!("{:?}", e)),
             };
@@ -406,6 +423,20 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 name: e.name().unwrap_or(&msg.template_name).to_string(),
                 line: e.line().unwrap_or(0),
                 source: None,
+                source_code: {
+                    let filename = e.name().unwrap_or(&msg.template_name);
+                    if let Ok(contents) = std::fs::read_to_string(filename) {
+                        if let Some(ln) = e.line() {
+                            let start = (ln as isize - 7).max(0) as usize;
+                            let end = (ln + 6).min(contents.lines().count());
+                            Some(contents.lines().skip(start).take(end - start).collect::<Vec<_>>().join("\n"))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                },
                 detail: e.detail().unwrap_or("").to_string(),
                 traceback: Some(format!("{:?}", e)),
             };

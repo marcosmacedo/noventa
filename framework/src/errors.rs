@@ -21,6 +21,7 @@ pub struct TemplateInfo {
     pub name: String,
     pub line: usize,
     pub source: Option<String>,
+    pub source_code: Option<String>,
     pub detail: String,
     pub traceback: Option<String>,
 }

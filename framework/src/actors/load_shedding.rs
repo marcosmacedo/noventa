@@ -137,6 +137,7 @@ impl Handler<RenderMessage> for LoadSheddingActor {
                         traceback: "".to_string(),
                         line_number: None,
                         filename: None,
+                        source_code: None,
                     })),
                     ..Default::default()
                 }) });
@@ -170,6 +171,7 @@ impl Handler<RenderMessage> for LoadSheddingActor {
                             traceback: format!("{:?}", e),
                             line_number: None,
                             filename: None,
+                            source_code: None,
                         })),
                         ..Default::default()
                     })
