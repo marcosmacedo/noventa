@@ -58,7 +58,7 @@ impl Drop for PyFileStorage {
     fn drop(&mut self) {
         if let FileData::OnDisk(path) = &*self.data {
             if let Err(e) = std::fs::remove_file(path) {
-                log::error!("Failed to delete temporary file: {}", e);
+                log::error!("We couldn't delete a temporary file: {}. This might indicate a permissions issue.", e);
             }
         }
     }

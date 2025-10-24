@@ -117,18 +117,18 @@ impl Handler<RenderMessage> for PageRendererActor {
             match result {
                 Ok(Ok(Ok(rendered))) => Ok(rendered),
                 Ok(Ok(Err(e))) => {
-                    log::error!("Error rendering template: {}", e);
+                    log::error!("Oh no! A page template failed to render: {}. This could be a typo in the template or an issue in the component's Python code. Check the file for errors.", e);
                     Err(e)
                 }
                 Ok(Err(e)) => {
-                    log::error!("Mailbox error: {}", e);
+                    log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
                     Err(minijinja::Error::new(
                         minijinja::ErrorKind::InvalidOperation,
                         "Mailbox error",
                     ))
                 }
                 Err(_) => {
-                    log::error!("Timeout error waiting for template renderer");
+                    log::error!("The template renderer timed out. The server is taking too long to respond.");
                     Err(minijinja::Error::new(
                         minijinja::ErrorKind::InvalidOperation,
                         "Timeout waiting for template renderer",

@@ -23,6 +23,7 @@ mod fileupload;
 mod routing;
 mod disco;
 mod session;
+mod logger;
 
 use actors::health::HealthActor;
 use actors::interpreter::PythonInterpreterActor;
@@ -114,16 +115,13 @@ fn create_new_project(name: &str) -> std::io::Result<()> {
         ));
     }
 
-    println!("Successfully created project: {}", name);
+    println!("✨ Your new project `{}` has been created successfully! Happy coding!", name);
     Ok(())
 }
 
 async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
-    if dev_mode {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-    } else {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    }
+    let log_level = config::CONFIG.log_level.as_deref().unwrap_or(if dev_mode { "debug" } else { "info" });
+    logger::init_logger(log_level);
 
     pyo3::Python::attach(|py| {
         let sys = py.import("sys").unwrap();
@@ -142,7 +140,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     // Scan for components
     let components = components::scan_components(components_dir)?;
-    log::info!("Found {} components.", components.len());
+    log::debug!("Found {} components. Ready to roll!", components.len());
 
     // --- Core Allocation ---
     // We are manually partitioning the CPU cores to ensure predictable performance.
@@ -156,8 +154,8 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     // Allocate the remaining cores to the Actix web server for handling I/O.
     let actix_web_threads = (total_cores - python_threads - template_renderer_threads).max(1);
 
-    log::info!(
-        "Core allocation: Total={}, Actix Web={}, Python={}, Template Renderer={}",
+    log::debug!(
+        "Core allocation: Total={}, Actix Web={}, Python={}, Template Renderer={}. Starting up the engines!",
         total_cores,
         actix_web_threads,
         python_threads,
@@ -169,10 +167,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     let health_actor_addr = HealthActor::new().start();
 
     // PythonInterpreterActor runs in a SyncArbiter with a dedicated thread pool.
-    let components_clone = components.clone();
-    let interpreters_addr = SyncArbiter::start(python_threads, move || {
-        PythonInterpreterActor::new(components_clone.clone(), dev_mode)
-    });
+    let interpreters_addr = SyncArbiter::start(python_threads, move || PythonInterpreterActor::new(dev_mode));
 
     // TemplateRendererActor is also CPU-bound and runs in its own SyncArbiter.
     let value = health_actor_addr.clone();
@@ -196,10 +191,10 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     let renderer_data: web::Data<Recipient<RenderMessage>>;
     if config::CONFIG.adaptive_shedding.unwrap_or(true) {
-        log::info!("Adaptive load shedding is ENABLED.");
+        log::debug!("Adaptive load shedding is enabled. The server will automatically adjust to traffic spikes.");
         renderer_data = web::Data::new(load_shedding_actor.recipient());
     } else {
-        log::info!("Adaptive load shedding is DISABLED.");
+        log::debug!("Adaptive load shedding is disabled. The server will handle all requests without throttling.");
         renderer_data = web::Data::new(page_renderer_addr.recipient());
     };
 
@@ -223,11 +218,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         let secret_key = match Key::try_from(secret_key_bytes) {
             Ok(key) => key,
             Err(e) => {
-                println!("Error: Invalid `secret_key` in config.yaml.");
-                println!(
-                    "The key must be at least 64 bytes long, but it is currently {} bytes.",
-                    secret_key_bytes.len()
-                );
+                println!("Your `secret_key` in `config.yaml` is not long enough. It needs to be at least 64 characters long for security. Please generate a new, longer key.");
                 println!("Details: {}", e);
                 std::process::exit(1);
             }
@@ -257,12 +248,12 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     } else {
         // Default fallback if no session config is provided
         let secret_key = Key::from(&[0u8; 64]); // Use a secure, random key in production
-        log::warn!("No session configuration found. Using default cookie session store with a fixed secret key. This is NOT recommended for production.");
+        log::warn!("Heads up! No session key was found in your `config.yaml`. We're using a temporary key for now, but for production, you'll want to set a secure `secret_key`.");
         let store = session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()));
         (store, secret_key)
     };
 
-    HttpServer::new(move || {
+    let server = HttpServer::new(move || {
         let mut app = App::new()
             .wrap(actix_web::middleware::Compress::default())
             .app_data(renderer_data.clone())
@@ -318,9 +309,20 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     })
     .workers(actix_web_threads) // Set the number of web server worker threads.
     .keep_alive(std::time::Duration::from_secs(30))
-    .bind(("127.0.0.1", 8080))?
-    .run()
-    .await
+    .bind(("127.0.0.1", 8080))
+    .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            println!("Error: The port 8080 is already in use.");
+            println!("Another application is likely running on this port.");
+            println!("Please stop the other application or choose a different port.");
+            std::process::exit(1);
+        }
+        e
+    })?;
+
+    logger::print_banner("127.0.0.1", 8080);
+
+    server.run().await
 }
 
 async fn dev_ws(req: HttpRequest, stream: web::Payload, srv: web::Data<Addr<WsServer>>) -> Result<actix_web::HttpResponse, Error> {
@@ -364,3 +366,4 @@ mod tests {
         std::env::set_current_dir(current_exe.parent().unwrap().parent().unwrap().parent().unwrap().parent().unwrap()).unwrap();
     }
 }
+
