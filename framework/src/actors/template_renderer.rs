@@ -3,8 +3,10 @@ use crate::actors::interpreter::{ExecuteFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
+use crate::errors::{DetailedError, ErrorSource, ComponentInfo};
 use actix::prelude::*;
-use minijinja::{Environment, Error, State, value::Kwargs, Value};
+use std::error::Error;
+use minijinja::{Environment, State, value::Kwargs, Value};
 use std::sync::Arc;
 use std::collections::HashMap;
 use regex::Regex;
@@ -47,12 +49,30 @@ impl TemplateRendererActor {
         }
     }
 
-    fn handle_post_request(&mut self, msg: RenderTemplate) -> Result<String, Error> {
+    fn handle_post_request(&mut self, msg: RenderTemplate) -> Result<String, DetailedError> {
         // Phase 1: Scan - Recursively find all `component()` calls in the templates
         // to build a complete blueprint of the page's component tree.
         let mut component_calls = Vec::new();
-        let template = self.env.get_template(&msg.template_name)?;
-        self.recursive_scan(template.source(), &mut component_calls)?;
+        let template = self.env.get_template(&msg.template_name).map_err(|e| DetailedError {
+            page: Some(crate::errors::TemplateInfo {
+                name: msg.template_name.clone(),
+                line: e.line().unwrap_or(0),
+                source: None,
+                detail: e.detail().unwrap_or("").to_string(),
+                traceback: Some(format!("{:?}", e)),
+            }),
+            ..Default::default()
+        })?;
+        self.recursive_scan(template.source(), &mut component_calls).map_err(|e| DetailedError {
+            page: Some(crate::errors::TemplateInfo {
+                name: msg.template_name.clone(),
+                line: 0,
+                source: None,
+                detail: e.to_string(),
+                traceback: Some(format!("{:?}", e)),
+            }),
+            ..Default::default()
+        })?;
 
         // Extract form data to identify which component action was triggered.
         let form_data: HashMap<String, String> =
@@ -60,7 +80,7 @@ impl TemplateRendererActor {
         let form_component_id = form_data.get("component_id").cloned().unwrap_or_default();
         let action = form_data.get("action").cloned().unwrap_or_default();
 
-        // Phase 2: Act & Cache - Execute the action handler for the target component *before* rendering.
+    // Phase 2: Act & Cache - Execute the action handler for the target component *before* rendering.
         // The unique context returned by the action is cached to be used in the final render.
         let mut action_context = None;
         if let Some(action_component_call) = component_calls.iter().find(|c| c.name == form_component_id) {
@@ -86,14 +106,29 @@ impl TemplateRendererActor {
 
                 let result = futures::executor::block_on(self.interpreter.send(execute_fn_msg));
                 match result {
-                    Ok(Ok(result)) => {
-                        action_context = Some(result.context);
-                    }
-                    Ok(Err(e)) => {
-                        return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
-                    }
+                        Ok(Ok(result)) => {
+                            action_context = Some(result.context);
+                        }
+                        Ok(Err(py_err)) => {
+                            return Err(DetailedError {
+                                component: Some(ComponentInfo {
+                                    name: action_component_call.name.clone(),
+                                }),
+                                error_source: Some(ErrorSource::Python(py_err)),
+                                ..Default::default()
+                            });
+                        }
                     Err(e) => {
-                        return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                        log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
+                        return Err(DetailedError {
+                            error_source: Some(ErrorSource::Python(crate::actors::interpreter::PythonError {
+                                message: e.to_string(),
+                                traceback: format!("{:?}", e),
+                                line_number: None,
+                                filename: None,
+                            })),
+                            ..Default::default()
+                        });
                     }
                 }
             }
@@ -105,7 +140,7 @@ impl TemplateRendererActor {
             env.set_loader(minijinja::path_loader("."));
         }
 
-        let interpreter_clone = self.interpreter.clone();
+    let interpreter_clone = self.interpreter.clone();
         let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
         let session_manager_clone = msg.session_manager.clone();
@@ -114,17 +149,14 @@ impl TemplateRendererActor {
 
         env.add_function(
             "component",
-            move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, Error> {
+            move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
                 let kwargs_map: HashMap<String, Value> = kwargs
                     .args()
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                // For the component that handled the action, use its cached context.
-                // For all other components, call their `load_template_context` (GET workflow)
-                // to ensure they fetch the fresh, post-action state.
-                let context = if name == form_component_id {
-                    action_context.as_ref().as_ref().unwrap().clone()
+                let context_result = if name == form_component_id {
+                    Ok(action_context.as_ref().as_ref().unwrap().clone())
                 } else {
                     let component = components_clone.iter().find(|c| c.id == name).unwrap();
                     let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
@@ -144,41 +176,70 @@ impl TemplateRendererActor {
                     health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
 
                     match result {
-                        Ok(Ok(result)) => result.context,
-                        Ok(Err(e)) => {
-                            return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                        Ok(Ok(res)) => Ok(res.context),
+                        Ok(Err(py_err)) => {
+                            let detailed_error = DetailedError {
+                                component: Some(ComponentInfo { name: name.clone() }),
+                                error_source: Some(ErrorSource::Python(py_err)),
+                                ..Default::default()
+                            };
+                            let err = minijinja::Error::new(
+                                minijinja::ErrorKind::InvalidOperation,
+                                "Python function crashed",
+                            );
+                            Err(err.with_source(detailed_error))
                         }
                         Err(e) => {
-                            return Err(Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                            log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
+                            Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
                         }
                     }
                 };
 
-                let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
-                    Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
-                })?;
-                let mut template_path = component.template_path.clone();
-                if template_path.starts_with("./") {
-                    template_path = template_path[2..].to_string();
+                match context_result {
+                    Ok(context) => {
+                        let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                            minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
+                        })?;
+                        let mut template_path = component.template_path.clone();
+                        if template_path.starts_with("./") {
+                            template_path = template_path[2..].to_string();
+                        }
+                        let tmpl = state.env().get_template(&template_path)?;
+                        let mut result = tmpl.render(context)?;
+
+                        let re = Regex::new(r"(<form[^>]*>)").unwrap();
+                        let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
+                        result = re.replace_all(&result, replacement).to_string();
+
+                        Ok(Value::from_safe_string(result))
+                    }
+                    Err(e) => Err(e),
                 }
-                let tmpl = state.env().get_template(&template_path)?;
-                let mut result = tmpl.render(context)?;
-
-                let re = Regex::new(r"(<form[^>]*>)").unwrap();
-                let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
-                result = re.replace_all(&result, replacement).to_string();
-
-                Ok(Value::from_safe_string(result))
             },
         );
 
-        self.render_page(&env, &msg.template_name)
+        self.render_page(&env, &msg.template_name).map_err(|e| {
+            if let Some(detailed_error) = e.source().and_then(|s| s.downcast_ref::<DetailedError>()) {
+                return detailed_error.clone();
+            }
+            DetailedError {
+                page: Some(crate::errors::TemplateInfo {
+                    name: msg.template_name.clone(),
+                    line: e.line().unwrap_or(0),
+                    source: None,
+                    detail: e.detail().unwrap_or("").to_string(),
+                    traceback: Some(format!("{:?}", e)),
+                }),
+                ..Default::default()
+            }
+        })
     }
 
     // Recursively scans template files to find all `{{ component(...) }}` calls.
     // This builds a complete tree of all components on a page and their arguments,
     // without executing any of them.
-    fn recursive_scan(&self, template_content: &str, calls: &mut Vec<ComponentCall>) -> Result<(), Error> {
+    fn recursive_scan(&self, template_content: &str, calls: &mut Vec<ComponentCall>) -> Result<(), minijinja::Error> {
         for cap in COMPONENT_REGEX.captures_iter(template_content) {
             let args_str = &cap[1];
             // Manual parsing of arguments from the template string.
@@ -198,7 +259,7 @@ impl TemplateRendererActor {
             }
 
             let component = self.components.iter().find(|c| c.id == name).ok_or_else(|| {
-                Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
+                minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
             })?;
 
             // Recurse into the component's own template to find nested components.
@@ -209,7 +270,7 @@ impl TemplateRendererActor {
         Ok(())
     }
 
-    fn render_page(&self, env: &Environment, template_name: &str) -> Result<String, Error> {
+    fn render_page(&self, env: &Environment, template_name: &str) -> Result<String, minijinja::Error> {
         let tmpl = env.get_template(template_name)?;
         let start_time = std::time::Instant::now();
         let mut result = tmpl.render(minijinja::context! {})?;
@@ -223,7 +284,6 @@ impl TemplateRendererActor {
             if self.dev_mode {
                 scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
             }
-            scripts.push_str("<script src=\"https://cdn.jsdelivr.net/npm/@unocss/runtime/uno.global.js\"></script>");
             result.insert_str(body_end_pos, &scripts);
         }
 
@@ -240,7 +300,7 @@ impl Actor for TemplateRendererActor {
 
 // Message for rendering a template
 #[derive(Message)]
-#[rtype(result = "Result<String, Error>")]
+#[rtype(result = "Result<String, DetailedError>")]
 pub struct RenderTemplate {
     pub template_name: String,
     pub request_info: Arc<HttpRequestInfo>,
@@ -256,7 +316,7 @@ pub struct UpdateComponents(pub Vec<Component>);
 pub struct UpdateSingleComponent(pub Component);
 
 impl Handler<RenderTemplate> for TemplateRendererActor {
-    type Result = Result<String, Error>;
+    type Result = Result<String, DetailedError>;
 
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
         if msg.request_info.method == "POST" {
@@ -276,7 +336,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
 
         env.add_function(
             "component",
-            move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, Error> {
+            move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
                 let kwargs_map: HashMap<String, Value> = kwargs
                     .args()
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
@@ -302,7 +362,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 match result {
                     Ok(Ok(result)) => {
                         let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
-                            Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
+                            minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                         })?;
                         let mut template_path = component.template_path.clone();
                         if template_path.starts_with("./") {
@@ -316,19 +376,41 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
 
                         Ok(Value::from_safe_string(rendered_component))
                     }
-                    Ok(Err(e)) => {
-                        log::error!("Oh no! A Python function called from a template crashed: {}. We couldn't render the page.", e);
-                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                    Ok(Err(py_err)) => {
+                        let detailed_error = DetailedError {
+                            component: Some(ComponentInfo { name: name.clone() }),
+                            error_source: Some(ErrorSource::Python(py_err)),
+                            ..Default::default()
+                        };
+                        let err = minijinja::Error::new(
+                            minijinja::ErrorKind::InvalidOperation,
+                            "Python function crashed",
+                        );
+                        Err(err.with_source(detailed_error))
                     }
                     Err(e) => {
                         log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, e.to_string()))
+                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
                     }
                 }
             },
         );
 
-        self.render_page(&env, &msg.template_name)
+        self.render_page(&env, &msg.template_name).map_err(|e| {
+            if let Some(detailed_error) = e.source().and_then(|s| s.downcast_ref::<DetailedError>()) {
+                return detailed_error.clone();
+            }
+            DetailedError {
+                page: Some(crate::errors::TemplateInfo {
+                    name: msg.template_name.clone(),
+                    line: e.line().unwrap_or(0),
+                    source: None,
+                    detail: e.detail().unwrap_or("").to_string(),
+                    traceback: Some(format!("{:?}", e)),
+                }),
+                ..Default::default()
+            }
+        })
     }
 }
 

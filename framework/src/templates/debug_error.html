@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Application Error</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #212529;
+            margin: 0;
+            padding: 2rem;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            border: 1px solid #dee2e6;
+            border-radius: 0.5rem;
+            box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        }
+        .header {
+            background-color: #dc3545;
+            color: #ffffff;
+            padding: 1.5rem;
+            border-bottom: 1px solid #dc3545;
+            border-top-left-radius: 0.5rem;
+            border-top-right-radius: 0.5rem;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 1.75rem;
+        }
+        .content {
+            padding: 1.5rem;
+        }
+        .trace-stack {
+            list-style: none;
+            padding: 0;
+        }
+        .trace-item {
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            margin-bottom: 1rem;
+        }
+        .trace-header {
+            background-color: #f8f9fa;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid #dee2e6;
+            font-weight: 500;
+        }
+        .trace-body {
+            padding: 1.25rem;
+        }
+        .trace-location {
+            font-size: 0.9rem;
+            color: #6c757d;
+            margin-bottom: 0.5rem;
+        }
+        .trace-source, .traceback {
+            background-color: #e9ecef;
+            border: 1px solid #ced4da;
+            border-radius: 0.25rem;
+            padding: 1rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Application Error</h1>
+        </div>
+        <div class="content">
+            <div class="trace-item">
+                <div class="trace-header">Error Details</div>
+                <div class="trace-body">
+                    {% if error.route %}
+                        <p><strong>Route:</strong> {{ error.route }}</p>
+                    {% endif %}
+                    {% if error.page %}
+                        <p><strong>Page:</strong> {{ error.page.name }}</p>
+                    {% endif %}
+                    {% if error.component %}
+                        <p><strong>Component:</strong> {{ error.component.name }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% if error.error_source %}
+            <div class="trace-item">
+                {% if error.error_source.Python %}
+                <div class="trace-header">Python Error</div>
+                <div class="trace-body">
+                    <p>{{ error.error_source.Python.message }}</p>
+                    <div class="trace-location">
+                        In <strong>{% if error.error_source.Python.filename %}{{ error.error_source.Python.filename }}{% else %}Unknown{% endif %}</strong> at line <strong>{% if error.error_source.Python.line_number %}{{ error.error_source.Python.line_number }}{% else %}0{% endif %}</strong>
+                    </div>
+                    <div class="traceback">
+                        <pre><code>{{ error.error_source.Python.traceback|e }}</code></pre>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+            {% else %}
+            <p>No error details available.</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

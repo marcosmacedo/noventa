@@ -4,11 +4,11 @@ use crate::dto::python_request::PyRequest;
 use actix::prelude::*;
 use minijinja::Value;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyModule};
+use pyo3::types::{PyAnyMethods, PyDict, PyModule};
 use std::collections::HashMap;
 use std::ffi::CString;
-use std::io::{Error, ErrorKind};
 use std::sync::Arc;
+use std::fmt;
 
 // Define the message for rendering a component
 use serde::Serialize;
@@ -16,13 +16,29 @@ use serde::Serialize;
 use crate::actors::session_manager::SessionManagerActor;
 use actix::Addr;
 
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct PythonError {
+    pub message: String,
+    pub traceback: String,
+    pub line_number: Option<usize>,
+    pub filename: Option<String>,
+}
+
+impl fmt::Display for PythonError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for PythonError {}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct PythonFunctionResult {
     pub context: Value,
 }
 
 #[derive(Message, Clone)]
-#[rtype(result = "Result<PythonFunctionResult, Error>")]
+#[rtype(result = "Result<PythonFunctionResult, PythonError>")]
 pub struct ExecuteFunction {
     pub module_path: String,
     pub function_name: String,
@@ -97,7 +113,7 @@ impl Actor for PythonInterpreterActor {
 
 // Define the handler for the ExecuteFunction message
 impl Handler<ExecuteFunction> for PythonInterpreterActor {
-    type Result = Result<PythonFunctionResult, Error>;
+    type Result = Result<PythonFunctionResult, PythonError>;
 
     fn handle(&mut self, msg: ExecuteFunction, _ctx: &mut Self::Context) -> Self::Result {
         log::trace!(
@@ -112,20 +128,30 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
 
         let result_value: serde_json::Value = Python::attach(|py| {
             let module = if self.dev_mode {
-                let importlib = py.import("importlib").map_err(|e| pyerr_to_io_error(e, py))?;
-                let import_module = importlib.getattr("import_module").map_err(|e| pyerr_to_io_error(e, py))?;
-                let module = import_module.call1((&msg.module_path,)).map_err(|e| pyerr_to_io_error(e, py))?;
-                let reload = importlib.getattr("reload").map_err(|e| pyerr_to_io_error(e, py))?;
-                reload.call1((module.clone(),)).map_err(|e| pyerr_to_io_error(e, py))?;
-                module.downcast::<PyModule>().map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?.clone().into()
+                let importlib = py.import("importlib").map_err(|e| pyerr_to_pyerror(e, py))?;
+                let import_module = importlib.getattr("import_module").map_err(|e| pyerr_to_pyerror(e, py))?;
+                let module = import_module.call1((&msg.module_path,)).map_err(|e| pyerr_to_pyerror(e, py))?;
+                let reload = importlib.getattr("reload").map_err(|e| pyerr_to_pyerror(e, py))?;
+                reload.call1((module.clone(),)).map_err(|e| pyerr_to_pyerror(e, py))?;
+                module.downcast::<PyModule>().map_err(|e| PythonError {
+                    message: e.to_string(),
+                    traceback: "".to_string(),
+                    line_number: None,
+                    filename: None,
+                })?.clone().into()
             } else {
                 self.modules
                     .get(&msg.module_path)
                     .map(|m| m.clone_ref(py))
-                    .ok_or_else(|| Error::new(ErrorKind::NotFound, "Module not found"))?
+                    .ok_or_else(|| PythonError {
+                        message: "Module not found".to_string(),
+                        traceback: "".to_string(),
+                        line_number: None,
+                        filename: None,
+                    })?
             };
 
-            let func = module.getattr(py, &msg.function_name).map_err(|e| pyerr_to_io_error(e, py))?;
+            let func = module.getattr(py, &msg.function_name).map_err(|e| pyerr_to_pyerror(e, py))?;
 
             let py_request_obj = Py::new(py, py_request).unwrap();
             let py_session_obj = Py::new(py, py_session).unwrap();
@@ -134,8 +160,13 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
             if let Some(args) = msg.args {
                 for (key, value) in args {
                     let py_value = pythonize::pythonize(py, &value)
-                        .map_err(|e| Error::new(ErrorKind::Other, e.to_string()))?;
-                    py_args.set_item(key, py_value).map_err(|e| pyerr_to_io_error(e, py))?;
+                        .map_err(|e| PythonError {
+                            message: e.to_string(),
+                            traceback: "".to_string(),
+                            line_number: None,
+                            filename: None,
+                        })?;
+                    py_args.set_item(key, py_value).map_err(|e| pyerr_to_pyerror(e, py))?;
                 }
             }
 
@@ -146,16 +177,21 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
             let utils_filename = CString::new("utils.py").unwrap();
             let utils_module_name = CString::new("utils").unwrap();
             let utils_module = PyModule::from_code(py, &utils_code, &utils_filename, &utils_module_name)
-                .map_err(|e| pyerr_to_io_error(e, py))?;
+                .map_err(|e| pyerr_to_pyerror(e, py))?;
             let wrapper_func = utils_module.getattr("call_user_function")
-                .map_err(|e| pyerr_to_io_error(e, py))?;
+                .map_err(|e| pyerr_to_pyerror(e, py))?;
 
             // The user's function and its arguments are passed to the wrapper
             let args_to_wrapper = (func, py_request_obj, py_session_obj, db_arg);
-            let result = wrapper_func.call(args_to_wrapper, Some(&py_args)).map_err(|e| pyerr_to_io_error(e, py))?;
+            let result = wrapper_func.call(args_to_wrapper, Some(&py_args)).map_err(|e| pyerr_to_pyerror(e, py))?;
             
             let py_any = result;
-            pythonize::depythonize(&py_any).map_err(|e| Error::new(ErrorKind::Other, e.to_string()))
+            pythonize::depythonize(&py_any).map_err(|e| PythonError {
+                message: e.to_string(),
+                traceback: "".to_string(),
+                line_number: None,
+                filename: None,
+            })
         })?;
 
         let value = Value::from_serialize(&result_value);
@@ -173,8 +209,44 @@ impl Handler<ReloadInterpreter> for PythonInterpreterActor {
     }
 }
 
-fn pyerr_to_io_error(e: PyErr, py: Python) -> Error {
-    let err_string = e.to_string();
-    e.print(py);
-    Error::new(ErrorKind::Other, err_string)
+fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
+    let traceback_str = e.traceback(py).map_or_else(
+        || "No traceback available".to_string(),
+        |tb| tb.format().unwrap_or_else(|_| "Could not format traceback".to_string()),
+    );
+
+    let mut filename = None;
+    let mut line_number = None;
+
+    if let Some(traceback) = e.traceback(py) {
+        let mut current_tb: Option<pyo3::Bound<PyAny>> = Some(traceback.as_any().clone());
+
+        while let Some(tb) = current_tb {
+            if let Ok(frame) = tb.getattr("tb_frame") {
+                if let Ok(lineno) = tb.getattr("tb_lineno") {
+                    if let Ok(ln) = lineno.extract::<usize>() {
+                        line_number = Some(ln);
+                    }
+                }
+                if let Ok(code) = frame.getattr("f_code") {
+                    if let Ok(fname) = code.getattr("co_filename") {
+                        if let Ok(fname_str) = fname.extract::<String>() {
+                            filename = Some(fname_str);
+                        }
+                    }
+                }
+            }
+            current_tb = match tb.getattr("tb_next") {
+                Ok(next) if !next.is_none() => Some(next),
+                _ => None,
+            };
+        }
+    }
+    
+    PythonError {
+        message: e.to_string(),
+        traceback: traceback_str,
+        line_number,
+        filename,
+    }
 }

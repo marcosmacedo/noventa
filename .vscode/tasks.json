@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo build",
+      "type": "shell",
+      "command": "source ~/.zshrc && cargo build",
+      "options": {
+        "cwd": "${workspaceFolder}/framework"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent"
+      },
+      "problemMatcher": [
+        "$rustc"
+      ]
+    }
+  ]
+}

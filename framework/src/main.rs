@@ -25,6 +25,8 @@ mod routing;
 mod disco;
 mod session;
 mod logger;
+mod templates;
+mod errors;
 
 use actors::health::HealthActor;
 use actors::interpreter::PythonInterpreterActor;
@@ -123,6 +125,10 @@ fn create_new_project(name: &str) -> std::io::Result<()> {
 async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     let log_level = config::CONFIG.log_level.as_deref().unwrap_or(if dev_mode { "debug" } else { "info" });
     logger::init_logger(log_level);
+    // Inform the errors module about the runtime dev_mode value so it can
+    // render debug pages consistently when errors occur outside of request
+    // handlers that already receive dev_mode.
+    errors::set_dev_mode(dev_mode);
 
     pyo3::Python::attach(|py| {
         let sys = py.import("sys").unwrap();
@@ -260,6 +266,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(router_addr.clone()))
+            .app_data(web::Data::new(dev_mode))
             .route("/health", web::get().to(routing::health_check));
 
         if dev_mode {

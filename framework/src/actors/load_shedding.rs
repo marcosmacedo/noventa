@@ -126,12 +126,20 @@ impl Handler<DecrementActive> for LoadSheddingActor {
 
 
 impl Handler<RenderMessage> for LoadSheddingActor {
-    type Result = ResponseFuture<Result<String, minijinja::Error>>;
+    type Result = ResponseFuture<Result<String, crate::errors::DetailedError>>;
 
     fn handle(&mut self, msg: RenderMessage, ctx: &mut Context<Self>) -> Self::Result {
         if let Some(limit) = self.concurrency_limit {
             if self.active_requests >= limit && msg.request_info.path != "/health" {
-                return Box::pin(async { Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "SHEDDING")) });
+                return Box::pin(async { Err(crate::errors::DetailedError {
+                    error_source: Some(crate::errors::ErrorSource::Python(crate::actors::interpreter::PythonError {
+                        message: "Timeout".to_string(),
+                        traceback: "".to_string(),
+                        line_number: None,
+                        filename: None,
+                    })),
+                    ..Default::default()
+                }) });
             }
         }
 
@@ -156,7 +164,15 @@ impl Handler<RenderMessage> for LoadSheddingActor {
                 Ok(Err(e)) => Err(e),
                 Err(e) => {
                     log::error!("A mailbox error occurred in the load shedder: {}. This might indicate a problem with the server's internal communication.", e);
-                    Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error"))
+                    Err(crate::errors::DetailedError {
+                        error_source: Some(crate::errors::ErrorSource::Python(crate::actors::interpreter::PythonError {
+                            message: e.to_string(),
+                            traceback: format!("{:?}", e),
+                            line_number: None,
+                            filename: None,
+                        })),
+                        ..Default::default()
+                    })
                 }
             }
         })
