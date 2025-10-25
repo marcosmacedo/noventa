@@ -42,7 +42,6 @@ impl Backend {
     async fn listen_for_errors(&mut self) {
         log::info!("LSP backend is now listening for errors from the broadcast channel.");
         while let Ok(error_json) = self.error_rx.recv().await {
-            log::info!("LSP backend received an error: {}", error_json);
             if let Ok(error) = serde_json::from_str::<crate::errors::DetailedError>(&error_json) {
                 let file_path = error.file_path.clone();
                 let message = match &error.error_source {
@@ -69,14 +68,23 @@ impl Backend {
                 };
                 
                 log::info!("Publishing diagnostic for file: {}", file_path);
-                self.client
-                    .publish_diagnostics(
-                        Url::from_file_path(file_path).unwrap(),
-                        vec![diagnostic],
-                        None,
-                    )
-                    .await;
-                log::info!("Diagnostic published.");
+
+                // Canonicalize the file path to ensure it's absolute
+                if let Ok(absolute_path) = std::fs::canonicalize(&file_path) {
+                    if let Ok(url) = Url::from_file_path(absolute_path) {
+                        self.client
+                            .publish_diagnostics(
+                                url,
+                                vec![diagnostic],
+                                None,
+                            )
+                            .await;
+                    } else {
+                        log::error!("Failed to convert absolute path to URL for: {}", file_path);
+                    }
+                } else {
+                    log::error!("Failed to canonicalize file path: {}", file_path);
+                }
             } else {
                 log::error!("LSP backend failed to parse DetailedError from JSON.");
             }
