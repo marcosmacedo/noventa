@@ -1,0 +1,43 @@
+{
+  "name": "lsp-diagnostics-forwarder",
+  "displayName": "LSP Diagnostics Forwarder",
+  "description": "A VSCode extension that connects to a language server and forwards diagnostics.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.83.0"
+  },
+  "activationEvents": [
+    "onLanguage:plaintext"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "LSP Diagnostics Forwarder",
+      "properties": {
+        "lspDiagnosticsForwarder.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable the LSP client."
+        },
+        "lspDiagnosticsForwarder.port": {
+          "type": "number",
+          "default": 9999,
+          "description": "The port to connect to the LSP server on."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^24.9.1",
+    "@types/vscode": "^1.83.0",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

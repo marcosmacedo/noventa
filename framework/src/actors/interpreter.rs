@@ -11,12 +11,12 @@ use std::sync::Arc;
 use std::fmt;
 
 // Define the message for rendering a component
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::actors::session_manager::SessionManagerActor;
 use actix::Addr;
 
-#[derive(Debug, Serialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PythonError {
     pub message: String,
     pub traceback: String,

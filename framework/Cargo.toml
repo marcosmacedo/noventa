@@ -43,6 +43,9 @@ actix-rt = "2.11.0"
 actix-http = { version = "3.11.2", features = ["ws"] }
 chrono = "0.4.42"
 colored = "3.0.0"
+tower-lsp = { version = "0.20.0", features = ["proposed"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"

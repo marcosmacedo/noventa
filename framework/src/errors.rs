@@ -1,22 +1,42 @@
 use crate::actors::interpreter::PythonError;
-use actix_web::{http::StatusCode, HttpResponse, ResponseError};
-use serde::Serialize;
-use std::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
-use once_cell::sync::Lazy;
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 
-// Global runtime flag set from `main.rs` so error rendering can respect the
-// application's dev mode without reading environment variables here.
-static DEV_MODE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-
-/// Set the global dev-mode flag. Call this from `main.rs` with the runtime
-/// `dev_mode` value so template rendering and error pages can behave
-/// consistently across the application.
-pub fn set_dev_mode(value: bool) {
-    DEV_MODE.store(value, Ordering::SeqCst);
+lazy_static! {
+    pub static ref ERROR_CHANNEL: broadcast::Sender<String> = broadcast::channel(100).0;
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DetailedError {
+    pub message: String,
+    pub file_path: String,
+    pub line: u32,
+    pub column: u32,
+    pub error_source: Option<ErrorSource>,
+    pub component: Option<ComponentInfo>,
+    pub page: Option<TemplateInfo>,
+    pub route: Option<String>,
+}
+
+impl DetailedError {
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ErrorSource {
+    Python(PythonError),
+    Template(TemplateInfo),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ComponentInfo {
+    pub name: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TemplateInfo {
     pub name: String,
     pub line: usize,
@@ -26,70 +46,25 @@ pub struct TemplateInfo {
     pub traceback: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct ComponentInfo {
-    pub name: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub enum ErrorSource {
-    Python(PythonError),
-    Template(TemplateInfo),
-}
-
-#[derive(Debug, Serialize, Clone, Default)]
-pub struct DetailedError {
-    pub route: Option<String>,
-    pub page: Option<TemplateInfo>,
-    pub component: Option<ComponentInfo>,
-    pub error_source: Option<ErrorSource>,
-}
-
-impl DetailedError {
-    pub fn flatten(&self) -> Vec<ErrorSource> {
-        let mut sources = vec![];
-        if let Some(error_source) = &self.error_source {
-            sources.push(error_source.clone());
+impl Default for DetailedError {
+    fn default() -> Self {
+        Self {
+            message: "".to_string(),
+            file_path: "".to_string(),
+            line: 0,
+            column: 0,
+            error_source: None,
+            component: None,
+            page: None,
+            route: None,
         }
-        sources
     }
 }
-impl fmt::Display for DetailedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Create a simple string representation for the detailed error.
-        // This can be improved to be more descriptive.
-        write!(f, "A detailed error occurred.")
+
+impl std::fmt::Display for DetailedError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for DetailedError {}
-
-
-
-
-
-
-
-impl ResponseError for DetailedError {
-    fn status_code(&self) -> StatusCode {
-        StatusCode::INTERNAL_SERVER_ERROR
-    }
-
-    fn error_response(&self) -> HttpResponse {
-        let dev_mode = DEV_MODE.load(Ordering::SeqCst);
-
-        if dev_mode {
-            let final_html = crate::templates::render_structured_debug_error(self);
-            return HttpResponse::build(self.status_code())
-                .content_type("text/html")
-                .body(final_html);
-        }
-
-        HttpResponse::build(self.status_code())
-            .content_type("text/html")
-            .body("<h1>Internal Server Error</h1>")
-    }
-}
-
-
-
