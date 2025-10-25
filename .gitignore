@@ -1,2 +1,6 @@
 noventa.db
 noventa-extension/node_modules
+out/
+build/
+.DS_Store
+framework/starter/.git

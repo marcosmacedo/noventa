@@ -1,0 +1,23 @@
+# Ensure starter templates (including dotfile sentinel files like .gitkeep)
+# are included in source distributions and built wheels. Settle on
+# explicit inclusion because globbing used by package-data does not match
+# files starting with a dot (e.g. .gitkeep) by default.
+
+# Include everything under the package's starter directory
+recursive-include src/noventa/starter *
+
+# Also explicitly include any .gitkeep files anywhere in the package
+global-include *.gitkeep
+
+# Do NOT include VCS metadata like .git/ — it's large and not appropriate
+# for packaging. If you intentionally want to include .git, add explicit
+# include rules here (not recommended).
+
+# Include the .git directory inside the starter template when present.
+# Useful when the starter is a copy of a repository template that must
+# preserve its VCS metadata. Be cautious: this can include sensitive
+# information or increase package size.
+graft src/noventa/starter
+
+# Also try to graft any nested .git directory under the cookiecutter project dir
+graft src/noventa/starter/{{cookiecutter.project_name}}/.git

@@ -47,6 +47,8 @@ use clap::Parser;
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+    #[clap(long, global = true)]
+    starter: Option<String>,
 }
 
 #[derive(clap::Subcommand)]
@@ -58,7 +60,10 @@ enum Commands {
     /// Runs the MCP server
     Disco,
     /// Create a new project
-    New { name: String },
+    New {
+        #[clap(long, action)]
+        no_input: bool,
+    },
 }
 
 #[actix_web::main]
@@ -69,7 +74,7 @@ async fn main() -> std::io::Result<()> {
         Some(Commands::Dev) => (true, Some(Commands::Dev)),
         Some(Commands::Serve) => (false, Some(Commands::Serve)),
         Some(Commands::Disco) => (false, Some(Commands::Disco)),
-        Some(Commands::New { ref name }) => (false, Some(Commands::New { name: name.clone() })),
+        Some(Commands::New { no_input }) => (false, Some(Commands::New { no_input })),
         None => (true, None), // Default to dev mode
     };
 
@@ -79,21 +84,19 @@ async fn main() -> std::io::Result<()> {
         Some(Commands::Dev) | None => run_dev_server(dev_mode).await,
         Some(Commands::Serve) => run_dev_server(dev_mode).await,
         Some(Commands::Disco) => disco::server::run_disco_server().await,
-        Some(Commands::New { name }) => create_new_project(name),
+        Some(Commands::New { no_input }) => create_new_project(cli.starter.as_deref(), *no_input),
     }
 }
 
-fn create_new_project(name: &str) -> std::io::Result<()> {
-    // Get the path to the currently running executable
-    let mut exe_path = env::current_exe()?;
-    // Navigate up to the project root (assuming the executable is in `noventa/framework/target/debug/noventa`)
-    exe_path.pop(); // -> noventa/framework/target/debug
-    exe_path.pop(); // -> noventa/framework/target
-    exe_path.pop(); // -> noventa/framework
-    exe_path.pop(); // -> noventa/
-
-    // Now construct the path to the template
-    let template_path = exe_path.join("framework/starter");
+fn create_new_project(starter_path: Option<&str>, no_input: bool) -> std::io::Result<()> {
+    let template_path = if let Some(path) = starter_path {
+        Path::new(path).to_path_buf()
+    } else {
+        // Fallback for local development: find the `starter` directory relative to the executable.
+        let mut exe_path = env::current_exe()?;
+        exe_path.pop();
+        exe_path.join("starter")
+    };
 
     if !template_path.exists() {
         return Err(std::io::Error::new(
@@ -104,13 +107,14 @@ fn create_new_project(name: &str) -> std::io::Result<()> {
 
     let output_dir = ".";
 
-    let status = Command::new("cookiecutter")
-        .arg(template_path)
-        .arg("--output-dir")
-        .arg(output_dir)
-        .arg("--no-input")
-        .arg(format!("project_name={}", name))
-        .status()?;
+    let mut command = Command::new("python");
+    command.arg("-m").arg("cookiecutter").arg(template_path).arg("--output-dir").arg(output_dir);
+
+    if no_input {
+        command.arg("--no-input");
+    }
+
+    let status = command.status()?;
 
     if !status.success() {
         return Err(std::io::Error::new(
@@ -119,7 +123,7 @@ fn create_new_project(name: &str) -> std::io::Result<()> {
         ));
     }
 
-    println!("✨ Your new project `{}` has been created successfully! Happy coding!", name);
+    println!("✨ Your new project has been created successfully! Happy coding!");
     Ok(())
 }
 
@@ -370,7 +374,7 @@ mod tests {
         let current_exe = std::env::current_exe().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
         
-        let result = create_new_project(project_name);
+        let result = create_new_project(None, true);
         assert!(result.is_ok());
         
         std::env::set_current_dir(current_exe.parent().unwrap().parent().unwrap().parent().unwrap().parent().unwrap()).unwrap();

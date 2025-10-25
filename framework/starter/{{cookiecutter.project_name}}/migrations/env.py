@@ -17,7 +17,7 @@ if config.config_file_name is not None:
 # --- Model Discovery ---
 def import_models():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    models_pattern = os.path.join(project_root, 'web', 'components', '**', '*_models.py')
+    models_pattern = os.path.join(project_root, 'components', '**', '*_models.py')
     models_files = glob.glob(models_pattern, recursive=True)
     
     bases = []
@@ -44,7 +44,7 @@ target_metadata = get_aggregated_metadata()
 def get_db_url_from_config():
     """Reads the database URL from the framework's config.yaml and makes it absolute."""
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    config_path = os.path.join(project_root, 'framework', 'config.yaml')
+    config_path = os.path.join(project_root, 'config.yaml')
     
     with open(config_path, 'r') as f:
         framework_config = yaml.safe_load(f)
