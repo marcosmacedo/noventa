@@ -2,8 +2,9 @@
   "name": "noventa-extension",
   "displayName": "Noventa Extension",
   "description": "A VSCode extension for Noventa.",
+  "publisher": "Marcos Macedo",
   "icon": "images/icon.png",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.83.0"
   },

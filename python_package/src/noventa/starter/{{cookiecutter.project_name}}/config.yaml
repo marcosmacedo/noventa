@@ -47,8 +47,9 @@ security:
 # -----------------------------------------------------------------------------
 # Database connection URL for SQLAlchemy.
 # -----------------------------------------------------------------------------
-# Connection string for the database.
-database: "sqlite:///./noventa.db"
+database:
+  # Connection string for the database.
+  url: "sqlite:///./noventa.db"
 
 # -----------------------------------------------------------------------------
 # Session Management
@@ -63,8 +64,8 @@ session:
   backend: "in-memory"
 
   # A secret string at least 64 characters long. This is critical for security.
-  # IMPORTANT: This was randomly generated during project creation. Keep it secret!
-  secret_key: "!!!REPLACE-ME-WITH-A-REAL-SECRET-KEY!!!"
+  # IMPORTANT: Change this to a unique, randomly generated string in production.
+  secret_key: "yaapejgyojczvsvsrtuvyucfghwwhzpieelbcnxbhnqipnqioqqgelodbfwmpqdk"
 
   # The name of the cookie that will be sent to the browser.
   cookie_name: "noventa_session"
