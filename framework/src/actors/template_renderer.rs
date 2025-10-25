@@ -3,7 +3,7 @@ use crate::actors::interpreter::{ExecuteFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::HttpRequestInfo;
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
-use crate::errors::{DetailedError, ErrorSource, ComponentInfo};
+use crate::errors::{ComponentInfo, DetailedError, ErrorSource};
 use actix::prelude::*;
 use std::error::Error;
 use minijinja::{Environment, State, value::Kwargs, Value};
@@ -62,6 +62,7 @@ impl TemplateRendererActor {
                 detail: e.detail().unwrap_or("").to_string(),
                 traceback: Some(format!("{:?}", e)),
             }),
+            file_path: msg.template_name.clone(),
             ..Default::default()
         })?;
         self.recursive_scan(template.source(), &mut component_calls).map_err(|e| DetailedError {
@@ -73,6 +74,7 @@ impl TemplateRendererActor {
                 detail: e.to_string(),
                 traceback: Some(format!("{:?}", e)),
             }),
+            file_path: msg.template_name.clone(),
             ..Default::default()
         })?;
 
@@ -116,7 +118,9 @@ impl TemplateRendererActor {
                                 component: Some(ComponentInfo {
                                     name: action_component_call.name.clone(),
                                 }),
-                                error_source: Some(ErrorSource::Python(py_err)),
+                                error_source: Some(ErrorSource::Python(py_err.clone())),
+                                file_path: py_err.filename.clone().unwrap_or_default(),
+                                line: py_err.line_number.unwrap_or(0) as u32,
                                 ..Default::default()
                             });
                         }
@@ -183,7 +187,9 @@ impl TemplateRendererActor {
                         Ok(Err(py_err)) => {
                             let detailed_error = DetailedError {
                                 component: Some(ComponentInfo { name: name.clone() }),
-                                error_source: Some(ErrorSource::Python(py_err)),
+                                error_source: Some(ErrorSource::Python(py_err.clone())),
+                                file_path: py_err.filename.clone().unwrap_or_default(),
+                                line: py_err.line_number.unwrap_or(0) as u32,
                                 ..Default::default()
                             };
                             let err = minijinja::Error::new(
@@ -249,7 +255,9 @@ impl TemplateRendererActor {
             };
             DetailedError {
                 page: Some(template_info.clone()),
-                error_source: Some(ErrorSource::Template(template_info)),
+                error_source: Some(ErrorSource::Template(template_info.clone())),
+                file_path: e.name().unwrap_or(&msg.template_name).to_string(),
+                line: template_info.line as u32,
                 ..Default::default()
             }
         })
@@ -398,7 +406,9 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     Ok(Err(py_err)) => {
                         let detailed_error = DetailedError {
                             component: Some(ComponentInfo { name: name.clone() }),
-                            error_source: Some(ErrorSource::Python(py_err)),
+                            error_source: Some(ErrorSource::Python(py_err.clone())),
+                            file_path: py_err.filename.clone().unwrap_or_default(),
+                            line: py_err.line_number.unwrap_or(0) as u32,
                             ..Default::default()
                         };
                         let err = minijinja::Error::new(
@@ -442,7 +452,9 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             };
             DetailedError {
                 page: Some(template_info.clone()),
-                error_source: Some(ErrorSource::Template(template_info)),
+                error_source: Some(ErrorSource::Template(template_info.clone())),
+                file_path: e.name().unwrap_or(&msg.template_name).to_string(),
+                line: template_info.line as u32,
                 ..Default::default()
             }
         })

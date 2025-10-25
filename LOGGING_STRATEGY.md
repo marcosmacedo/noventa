@@ -1,68 +1,62 @@
-# Logging Strategy
+# Logging and Error Reporting Strategy
 
-This document outlines the logging philosophy for the Noventa framework, ensuring that log messages are consistent, clear, and targeted to the right audience.
+This document outlines the logging and error reporting strategy for the Noventa framework, including the new LSP-based error reporting mechanism.
 
-## Guiding Principles
+## LSP-Based Error Reporting
 
-1.  **Audience-Centric:** Every log message should be written with a specific audience in mind. Who needs to see this message, and what do they need to do with it?
-2.  **Actionable:** When a log indicates a problem, it should provide clear, actionable advice on how to fix it.
-3.  **Appropriate Level:** Log levels should be used to control the verbosity of the logs, allowing developers and operators to filter out noise and focus on what's important.
-4.  **Configurable:** The log level should be configurable in `config.yaml` to allow users to adjust the verbosity of the application without changing the code.
+The framework now includes an integrated Language Server Protocol (LSP) server that provides real-time error reporting directly in the VSCode editor. This feature is designed to improve the development experience by providing immediate feedback on errors as they occur.
 
-## Log Audiences and Levels
+### How it Works
 
-We classify all log messages into three categories, each with a corresponding set of log levels:
+1.  **LSP Server:** The LSP server is implemented as an `actix` actor and runs on a TCP socket (default port: 9999) when the application is started in development mode (`noventa dev`).
+2.  **Error Broadcasting:** When an error occurs in the application, it is sent to a global `tokio::sync::broadcast` channel.
+3.  **LSP Backend:** The LSP server's `Backend` subscribes to this channel and listens for incoming errors.
+4.  **Diagnostics:** When an error is received, the `Backend` parses it, creates a `Diagnostic` object, and publishes it to the VSCode client.
 
-### 1. End User
+### Configuration
 
-*   **Audience:** The person running the application from the command line.
-*   **Purpose:** To provide clear, friendly feedback during startup and for critical, user-actionable errors.
-*   **Mechanism:** Primarily `println!`, used only for messages that the user **must** see.
-*   **Examples:**
-    *   Confirming that a new project has been created.
-    *   Reporting a missing or invalid `config.yaml` file.
-    *   Informing the user that their `secret_key` is insecure.
+The VSCode extension includes the following configuration options:
 
-### 2. Developer
+-   `lspDiagnosticsForwarder.enable`: Enable or disable the LSP client.
+-   `lspDiagnosticsForwarder.port`: The port to connect to the LSP server on.
 
-*   **Audience:** A developer working on the application.
-*   **Purpose:** To help trace the application's flow during development, especially for features like live-reloading.
-*   **Mechanism:** `log::debug!` and `log::trace!`.
-    *   `log::debug!`: For general development messages, such as file watcher events and component rescans. This is the default level for development mode.
-    *   `log::trace!`: For highly verbose, low-level messages that are only needed for deep debugging, such as tracing individual requests through the actor system.
-*   **Examples:**
-    *   `log::debug!("File change detected. Reloading routes...");`
-    *   `log::debug!("Found {} components.", components.len());`
-    *   `log::trace!("Interpreter {} processing request for component '{}'", ...);`
+## Standard Logging
 
-### 3. Troubleshooting
+In addition to the LSP-based error reporting, the framework also uses the `log` crate for standard logging. The log level can be configured in the `config.yaml` file.
 
-*   **Audience:** A developer or system operator running the application in a production or staging environment.
-*   **Purpose:** To highlight problems that need attention, from potential issues to critical errors.
-*   **Mechanism:** `log::warn!` and `log::error!`.
-    *   `log::warn!`: For potential issues that don't immediately break functionality but should be addressed, such as security warnings or high-latency alerts.
-    *   `log::error!`: For definite errors that have caused an operation to fail, such as a template rendering error or a database connection failure.
-*   **Examples:**
-    *   `log::warn!("Security warning: No session key found in config.yaml...");`
-    *   `log::error!("A page template failed to render: {}...", e);`
+### How to Run the Extension in Development Mode
 
-## Configuration
+To test and develop the extension locally, follow these steps:
 
-The log level can be configured in `config.yaml` using the `log_level` key. The available log levels are `error`, `warn`, `info`, `debug`, and `trace`.
+1.  **Navigate to the Extension Directory:**
+    Open a terminal and change into the extension's directory:
+    ```bash
+    cd vscode-lsp-diagnostics-forwarder
+    ```
 
-```yaml
-# config.yaml
-log_level: debug
-```
+2.  **Install Dependencies:**
+    If you haven't already, install the necessary `npm` packages:
+    ```bash
+    npm install
+    ```
 
-If `log_level` is not set, it will default to `debug` in development mode (`noventa dev`) and `info` in production mode (`noventa serve`).
+3.  **Compile the Extension:**
+    The extension is written in TypeScript and needs to be compiled into JavaScript.
+    ```bash
+    npm run compile
+    ```
+    You can also run `npm run watch` to automatically recompile the extension whenever you make changes to the source code.
 
-## How to Write a Good Log Message
+4.  **Launch the Extension Development Host:**
+    Open the `vscode-lsp-diagnostics-forwarder` folder in VSCode. Then, press `F5` (or go to `Run > Start Debugging`). This will open a new VSCode window, called the "Extension Development Host," with your extension running inside it.
 
-1.  **Identify the Audience:** Who are you writing this for?
-2.  **Choose the Right Level:** Based on the audience and severity, pick the appropriate log level.
-3.  **Be Clear and Concise:** Write a message that is easy to understand.
-4.  **Provide Context:** Include relevant information, such as file paths, component names, or error details.
-5.  **Make it Actionable:** If it's an error or warning, explain what the user can do to fix it.
+5.  **Start the Noventa Server:**
+    In a separate terminal, navigate to the `framework` directory and start the Noventa development server:
+    ```bash
+    cd ../framework
+    noventa dev
+    ```
+    This will start both the web server and the LSP server (on port 9999 by default).
 
-By following this strategy, we can create a logging system that is not just a stream of text, but a powerful tool for building, debugging, and maintaining the framework.
+6.  **Verify the Connection:**
+    In the Extension Development Host window, open a file and trigger an error in your Noventa application. You should see diagnostics appear in the editor. You can also open the "Output" panel and select "LSP Diagnostics Forwarder" from the dropdown to see the raw LSP messages being exchanged between the client and the server.

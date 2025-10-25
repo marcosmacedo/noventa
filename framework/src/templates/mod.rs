@@ -1,4 +1,4 @@
-use crate::errors::DetailedError;
+use crate::errors::{DetailedError, ERROR_CHANNEL};
 use minijinja::Environment;
 use once_cell::sync::Lazy;
 
@@ -54,6 +54,7 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
 }
 
 pub fn log_detailed_error(detailed_error: &DetailedError) {
+    let _ = ERROR_CHANNEL.send(detailed_error.to_json());
     log::error!("");
     if let Some(route) = &detailed_error.route {
         log::error!("Page: {}", route);

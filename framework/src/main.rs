@@ -27,6 +27,7 @@ mod session;
 mod logger;
 mod templates;
 mod errors;
+mod lsp;
 
 use actors::health::HealthActor;
 use actors::interpreter::PythonInterpreterActor;
@@ -128,7 +129,6 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     // Inform the errors module about the runtime dev_mode value so it can
     // render debug pages consistently when errors occur outside of request
     // handlers that already receive dev_mode.
-    errors::set_dev_mode(dev_mode);
 
     pyo3::Python::attach(|py| {
         let sys = py.import("sys").unwrap();
@@ -214,6 +214,8 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         let server = WsServer::new().start();
         _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.clone(), template_renderer_addr.clone(), interpreters_addr.clone()).start());
         ws_server = Some(server);
+
+        lsp::LspActor.start();
     }
 
     // Prepare a runtime session store and secret key. If session config is missing,
