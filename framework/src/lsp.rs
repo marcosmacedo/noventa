@@ -13,8 +13,8 @@ impl Actor for LspActor {
 
     fn started(&mut self, _ctx: &mut Self::Context) {
         tokio::spawn(async {
-            log::info!("LSP server started on 127.0.0.1:9999");
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:9999").await.unwrap();
+            log::info!("LSP server started on 127.0.0.1:9090");
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:9090").await.unwrap();
             let (stream, _) = listener.accept().await.unwrap();
             log::info!("LSP client connected");
             let (read, write) = tokio::io::split(stream);

@@ -7,20 +7,20 @@ const vscode = require("vscode");
 const node_1 = require("vscode-languageclient/node");
 let client;
 async function activate(context) {
-    const config = vscode.workspace.getConfiguration('lspDiagnosticsForwarder');
+    const config = vscode.workspace.getConfiguration('noventaExtension');
     const enabled = config.get('enable', true);
-    const port = config.get('port', 9999);
+    const port = config.get('port', 9090);
     if (!enabled) {
         return;
     }
-    const outputChannel = vscode.window.createOutputChannel('LSP Diagnostics Forwarder');
+    const outputChannel = vscode.window.createOutputChannel('Noventa Extension');
     const serverOptions = () => {
         return new Promise((resolve) => {
             const connectToServer = () => {
-                outputChannel.appendLine(`Attempting to connect to LSP server on port ${port}...`);
+                outputChannel.appendLine(`Attempting to connect to Noventa server on port ${port}...`);
                 const socket = net.connect({ port });
                 socket.on('connect', () => {
-                    outputChannel.appendLine('Successfully connected to LSP server.');
+                    outputChannel.appendLine('Successfully connected to Noventa server.');
                     resolve({
                         reader: socket,
                         writer: socket
@@ -39,7 +39,7 @@ async function activate(context) {
         outputChannel,
         traceOutputChannel: outputChannel,
     };
-    client = new node_1.LanguageClient('lspDiagnosticsForwarder', 'LSP Diagnostics Forwarder', serverOptions, clientOptions);
+    client = new node_1.LanguageClient('noventaExtension', 'Noventa Extension', serverOptions, clientOptions);
     await client.start();
     client.onNotification('textDocument/publishDiagnostics', (params) => {
         outputChannel.appendLine(`Received diagnostics for ${params.uri}:`);

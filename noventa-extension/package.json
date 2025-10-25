@@ -1,7 +1,8 @@
 {
-  "name": "lsp-diagnostics-forwarder",
-  "displayName": "LSP Diagnostics Forwarder",
-  "description": "A VSCode extension that connects to a language server and forwards diagnostics.",
+  "name": "noventa-extension",
+  "displayName": "Noventa Extension",
+  "description": "A VSCode extension for Noventa.",
+  "icon": "images/icon.png",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.83.0"
@@ -12,17 +13,17 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "LSP Diagnostics Forwarder",
+      "title": "Noventa Extension",
       "properties": {
-        "lspDiagnosticsForwarder.enable": {
+        "noventaExtension.enable": {
           "type": "boolean",
           "default": true,
-          "description": "Enable/disable the LSP client."
+          "description": "Enable/disable the Noventa extension."
         },
-        "lspDiagnosticsForwarder.port": {
+        "noventaExtension.port": {
           "type": "number",
-          "default": 9999,
-          "description": "The port to connect to the LSP server on."
+          "default": 9090,
+          "description": "The port to connect to the Noventa server on."
         }
       }
     }

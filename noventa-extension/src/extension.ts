@@ -10,24 +10,24 @@ import {
 let client: LanguageClient;
 
 export async function activate(context: vscode.ExtensionContext) {
-  const config = vscode.workspace.getConfiguration('lspDiagnosticsForwarder');
+  const config = vscode.workspace.getConfiguration('noventaExtension');
   const enabled = config.get('enable', true);
-  const port = config.get('port', 9999);
+  const port = config.get('port', 9090);
 
   if (!enabled) {
     return;
   }
 
-  const outputChannel = vscode.window.createOutputChannel('LSP Diagnostics Forwarder');
+  const outputChannel = vscode.window.createOutputChannel('Noventa Extension');
 
   const serverOptions: ServerOptions = () => {
     return new Promise((resolve) => {
       const connectToServer = () => {
-        outputChannel.appendLine(`Attempting to connect to LSP server on port ${port}...`);
+        outputChannel.appendLine(`Attempting to connect to Noventa server on port ${port}...`);
         const socket = net.connect({ port });
 
         socket.on('connect', () => {
-          outputChannel.appendLine('Successfully connected to LSP server.');
+          outputChannel.appendLine('Successfully connected to Noventa server.');
           resolve({
             reader: socket,
             writer: socket
@@ -51,8 +51,8 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 
   client = new LanguageClient(
-    'lspDiagnosticsForwarder',
-    'LSP Diagnostics Forwarder',
+    'noventaExtension',
+    'Noventa Extension',
     serverOptions,
     clientOptions
   );
