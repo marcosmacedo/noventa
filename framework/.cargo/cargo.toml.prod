@@ -3,7 +3,6 @@
 rustflags = [
     "-C", "link-arg=-undefined",
     "-C", "link-arg=dynamic_lookup",
-    "-C", "link-arg=-Wl,-rpath,/Users/marcos/.conda/envs/py310/lib",
 ]
 
 # For macOS ARM64 (Apple Silicon)
@@ -11,7 +10,6 @@ rustflags = [
 rustflags = [
     "-C", "link-arg=-undefined",
     "-C", "link-arg=dynamic_lookup",
-    "-C", "link-arg=-Wl,-rpath,/Users/marcos/.conda/envs/py310/lib",
 ]
 
 # For Linux x86_64 (typically no special flags needed)

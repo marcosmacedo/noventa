@@ -58,7 +58,14 @@ def deep_convert(data):
     else:
         return data
 
+import sys
+
 def call_user_function(user_func, *args, **kwargs):
-    result = user_func(*args, **kwargs)
-    return deep_convert(result)
+    try:
+        result = user_func(*args, **kwargs)
+        return deep_convert(result)
+    except Exception as e:
+        exc_type, exc_value, exc_tb = sys.exc_info()
+        # Re-raise with original traceback preserved
+        raise e.with_traceback(exc_tb)
 "#;

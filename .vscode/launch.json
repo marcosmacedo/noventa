@@ -19,7 +19,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/framework/target/debug/noventa",
       "args": [],
-      "cwd": "/Users/marcos/Documents/page",
+      "cwd": "/Users/marcos/Documents/noventatest/noventa-web",
       "preLaunchTask": "cargo build"
     }
   ]
