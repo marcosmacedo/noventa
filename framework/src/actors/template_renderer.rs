@@ -369,7 +369,9 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let component = components_clone.iter().find(|c| c.id == name).unwrap();
+                let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                    minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
+                })?;
                 let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
 
                 let execute_fn_msg = ExecuteFunction {
