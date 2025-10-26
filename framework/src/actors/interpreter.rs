@@ -21,6 +21,9 @@ pub struct PythonError {
     pub message: String,
     pub traceback: String,
     pub line_number: Option<usize>,
+    pub column_number: Option<usize>,
+    pub end_line_number: Option<usize>,
+    pub end_column_number: Option<usize>,
     pub filename: Option<String>,
     pub source_code: Option<String>,
 }
@@ -138,6 +141,9 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                     message: e.to_string(),
                     traceback: "".to_string(),
                     line_number: None,
+                    column_number: None,
+                    end_line_number: None,
+                    end_column_number: None,
                     filename: None,
                     source_code: None,
                 })?.clone().into()
@@ -149,6 +155,9 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                         message: "Module not found".to_string(),
                         traceback: "".to_string(),
                         line_number: None,
+                        column_number: None,
+                        end_line_number: None,
+                        end_column_number: None,
                         filename: None,
                         source_code: None,
                     })?
@@ -167,6 +176,9 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                             message: e.to_string(),
                             traceback: "".to_string(),
                             line_number: None,
+                            column_number: None,
+                            end_line_number: None,
+                            end_column_number: None,
                             filename: None,
                             source_code: None,
                         })?;
@@ -194,6 +206,9 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
                 message: e.to_string(),
                 traceback: "".to_string(),
                 line_number: None,
+                column_number: None,
+                end_line_number: None,
+                end_column_number: None,
                 filename: None,
                 source_code: None,
             })
@@ -217,6 +232,9 @@ impl Handler<ReloadInterpreter> for PythonInterpreterActor {
 fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
     let mut filename = None;
     let mut line_number = None;
+    let mut column_number = None;
+    let mut end_line_number = None;
+    let mut end_column_number = None;
     let mut source_code = None;
     let mut traceback_str = "No traceback available".to_string();
 
@@ -242,9 +260,17 @@ fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
                 let fname: String = user_frame.getattr("filename")?.extract()?;
                 let lineno: usize = user_frame.getattr("lineno")?.extract()?;
                 let _func: String = user_frame.getattr("name")?.extract()?;
+                
+                // colno, end_lineno, and end_col_offset are available on Python 3.11+
+                let colno: Option<usize> = user_frame.getattr("colno").ok().and_then(|v| v.extract().ok());
+                let end_lineno: Option<usize> = user_frame.getattr("end_lineno").ok().and_then(|v| v.extract().ok());
+                let end_col_offset: Option<usize> = user_frame.getattr("end_col_offset").ok().and_then(|v| v.extract().ok());
 
                 filename = Some(fname.clone());
                 line_number = Some(lineno);
+                column_number = colno;
+                end_line_number = end_lineno;
+                end_column_number = end_col_offset;
 
                 // Optional: extract nearby source code context
                 if let Ok(contents) = std::fs::read_to_string(&fname) {
@@ -268,6 +294,9 @@ fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
         message: e.to_string(),
         traceback: traceback_str,
         line_number,
+        column_number,
+        end_line_number,
+        end_column_number,
         filename,
         source_code,
     }

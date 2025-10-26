@@ -80,8 +80,14 @@ async fn listen_for_errors() {
 
             let diagnostic = Diagnostic {
                 range: Range {
-                    start: Position { line: error.line, character: error.column },
-                    end: Position { line: error.line, character: error.column + 1 },
+                    start: Position {
+                        line: error.line.saturating_sub(1),
+                        character: error.column.saturating_sub(1),
+                    },
+                    end: Position {
+                        line: error.end_line.unwrap_or(error.line).saturating_sub(1),
+                        character: error.end_column.unwrap_or(error.column),
+                    },
                 },
                 severity: Some(DiagnosticSeverity::ERROR),
                 message,

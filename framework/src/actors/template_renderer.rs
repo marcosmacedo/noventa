@@ -119,8 +119,12 @@ impl TemplateRendererActor {
                                     name: action_component_call.name.clone(),
                                 }),
                                 error_source: Some(ErrorSource::Python(py_err.clone())),
+                                message: py_err.message.clone(),
                                 file_path: py_err.filename.clone().unwrap_or_default(),
                                 line: py_err.line_number.unwrap_or(0) as u32,
+                                column: py_err.column_number.unwrap_or(0) as u32,
+                                end_line: py_err.end_line_number.map(|l| l as u32),
+                                end_column: py_err.end_column_number.map(|c| c as u32),
                                 ..Default::default()
                             });
                         }
@@ -131,6 +135,9 @@ impl TemplateRendererActor {
                                 message: e.to_string(),
                                 traceback: format!("{:?}", e),
                                 line_number: None,
+                                column_number: None,
+                                end_line_number: None,
+                                end_column_number: None,
                                 filename: None,
                                 source_code: None,
                             })),
@@ -188,8 +195,12 @@ impl TemplateRendererActor {
                             let detailed_error = DetailedError {
                                 component: Some(ComponentInfo { name: name.clone() }),
                                 error_source: Some(ErrorSource::Python(py_err.clone())),
+                                message: py_err.message.clone(),
                                 file_path: py_err.filename.clone().unwrap_or_default(),
                                 line: py_err.line_number.unwrap_or(0) as u32,
+                                column: py_err.column_number.unwrap_or(0) as u32,
+                                end_line: py_err.end_line_number.map(|l| l as u32),
+                                end_column: py_err.end_column_number.map(|c| c as u32),
                                 ..Default::default()
                             };
                             let err = minijinja::Error::new(
@@ -409,10 +420,14 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                         let detailed_error = DetailedError {
                             component: Some(ComponentInfo { name: name.clone() }),
                             error_source: Some(ErrorSource::Python(py_err.clone())),
+                            message: py_err.message.clone(),
                             file_path: py_err.filename.clone().unwrap_or_default(),
                             line: py_err.line_number.unwrap_or(0) as u32,
+                            column: py_err.column_number.unwrap_or(0) as u32,
+                            end_line: py_err.end_line_number.map(|l| l as u32),
+                            end_column: py_err.end_column_number.map(|c| c as u32),
                             ..Default::default()
-                        };
+                    };
                         let err = minijinja::Error::new(
                             minijinja::ErrorKind::InvalidOperation,
                             "Python function crashed",
