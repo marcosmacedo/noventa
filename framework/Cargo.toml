@@ -46,6 +46,7 @@ colored = "3.0.0"
 tower-lsp = { version = "0.20.0", features = ["proposed"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
+dashmap = "6.1.0"
 
 [env]
 PYO3_PYTHON = "/opt/anaconda3/envs/nogil/bin/python"

@@ -213,14 +213,14 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     let mut ws_server: Option<Addr<WsServer>> = None;
     let mut _watcher: Option<Addr<FileWatcherActor>> = None;
-    let mut lsp_actor: Option<Addr<lsp::LspActor>> = None;
+    let mut _lsp_actor: Option<Addr<lsp::LspActor>> = None;
 
     if dev_mode {
         let server = WsServer::new().start();
         _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.clone(), template_renderer_addr.clone(), interpreters_addr.clone()).start());
         ws_server = Some(server);
 
-        lsp_actor = Some(lsp::LspActor.start());
+        _lsp_actor = Some(lsp::LspActor.start());
     }
 
     // Prepare a runtime session store and secret key. If session config is missing,
