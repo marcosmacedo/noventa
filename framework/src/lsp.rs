@@ -15,13 +15,20 @@ impl Actor for LspActor {
         tokio::spawn(async {
             log::info!("LSP server started on 127.0.0.1:9090");
             let listener = tokio::net::TcpListener::bind("127.0.0.1:9090").await.unwrap();
-            let (stream, _) = listener.accept().await.unwrap();
-            log::info!("LSP client connected");
-            let (read, write) = tokio::io::split(stream);
-
-            let (service, socket) = LspService::new(|client| Backend::new(client));
-            Server::new(read, write, socket).serve(service).await;
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                log::info!("LSP client connected");
+                let (read, write) = tokio::io::split(stream);
+                let (service, socket) = LspService::new(|client| Backend::new(client));
+                tokio::spawn(async move {
+                    Server::new(read, write, socket).serve(service).await;
+                });
+            }
         });
+    }
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+        log::info!("LSP server actor stopped");
     }
 }
 
@@ -66,8 +73,8 @@ impl Backend {
                     data: Some(serde_json::to_value(&error).unwrap()),
                     ..Diagnostic::default()
                 };
-                
-                log::info!("Publishing diagnostic for file: {}", file_path);
+
+                // log::info!("Publishing diagnostic for file: {}", file_path);
 
                 // Canonicalize the file path to ensure it's absolute
                 if let Ok(absolute_path) = std::fs::canonicalize(&file_path) {

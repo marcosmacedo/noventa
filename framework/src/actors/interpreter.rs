@@ -215,47 +215,55 @@ impl Handler<ReloadInterpreter> for PythonInterpreterActor {
 }
 
 fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
-    let traceback_str = e.traceback(py).map_or_else(
-        || "No traceback available".to_string(),
-        |tb| tb.format().unwrap_or_else(|_| "Could not format traceback".to_string()),
-    );
-
     let mut filename = None;
     let mut line_number = None;
     let mut source_code = None;
+    let mut traceback_str = "No traceback available".to_string();
 
-    if let Some(traceback) = e.traceback(py) {
-        let mut current_tb: Option<pyo3::Bound<PyAny>> = Some(traceback.as_any().clone());
+    let result: PyResult<()> = (|| {
+        let traceback_module = py.import("traceback")?;
+        let tb_obj = e.traceback(py).map_or(py.None(), |tb| tb.into());
 
-        while let Some(tb) = current_tb {
-            if let Ok(frame) = tb.getattr("tb_frame") {
-                if let Ok(lineno) = tb.getattr("tb_lineno") {
-                    if let Ok(ln) = lineno.extract::<usize>() {
-                        line_number = Some(ln);
-                    }
+        // Full formatted traceback string (for logs, debugging, etc.)
+        let tb_list = traceback_module.call_method1(
+            "format_exception",
+            (e.get_type(py), e.value(py), tb_obj),
+        )?;
+        traceback_str = tb_list.extract::<Vec<String>>()?.join("");
+
+        // Extract structured traceback info (list of FrameSummary)
+        if let Some(tb) = e.traceback(py) {
+            let frames = traceback_module.call_method1("extract_tb", (tb,))?;
+            let frames_len: usize = frames.len()?;
+
+            // Skip the first 2 frames (your wrapper)
+            if frames_len > 2 {
+                let user_frame = frames.get_item(frames_len - 1)?; // last frame (innermost user error)
+                let fname: String = user_frame.getattr("filename")?.extract()?;
+                let lineno: usize = user_frame.getattr("lineno")?.extract()?;
+                let _func: String = user_frame.getattr("name")?.extract()?;
+
+                filename = Some(fname.clone());
+                line_number = Some(lineno);
+
+                // Optional: extract nearby source code context
+                if let Ok(contents) = std::fs::read_to_string(&fname) {
+                    let lines: Vec<_> = contents.lines().collect();
+                    let start = (lineno.saturating_sub(6)).max(1) - 1;
+                    let end = (lineno + 5).min(lines.len());
+                    source_code = Some(lines[start..end].join("\n"));
                 }
-                if let Ok(code) = frame.getattr("f_code") {
-                    if let Ok(fname) = code.getattr("co_filename") {
-                        if let Ok(fname_str) = fname.extract::<String>() {
-                            filename = Some(fname_str.clone());
-                            if let Ok(contents) = std::fs::read_to_string(fname_str) {
-                                if let Some(ln) = line_number {
-                                    let start = (ln as isize - 7).max(0) as usize;
-                                    let end = (ln + 6).min(contents.lines().count());
-                                    source_code = Some(contents.lines().skip(start).take(end - start).collect::<Vec<_>>().join("\n"));
-                                }
-                            }
-                        }
-                    }
-                }
+            } else {
+                log::debug!("Traceback has fewer than 3 frames; cannot skip wrapper frames.");
             }
-            current_tb = match tb.getattr("tb_next") {
-                Ok(next) if !next.is_none() => Some(next),
-                _ => None,
-            };
         }
+        Ok(())
+    })();
+
+    if let Err(e) = result {
+        log::error!("Error getting traceback: {}", e);
     }
-    
+
     PythonError {
         message: e.to_string(),
         traceback: traceback_str,
@@ -264,3 +272,4 @@ fn pyerr_to_pyerror(e: PyErr, py: Python) -> PythonError {
         source_code,
     }
 }
+

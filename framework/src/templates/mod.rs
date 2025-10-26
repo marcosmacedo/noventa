@@ -54,7 +54,9 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
 }
 
 pub fn log_detailed_error(detailed_error: &DetailedError) {
-    let _ = ERROR_CHANNEL.send(detailed_error.to_json());
+    if let Err(e) = ERROR_CHANNEL.send(detailed_error.to_json()) {
+        log::error!("Failed to send error to ERROR_CHANNEL: {}", e);
+    }
     log::error!("");
     if let Some(route) = &detailed_error.route {
         log::error!("Page: {}", route);
