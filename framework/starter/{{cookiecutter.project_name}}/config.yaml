@@ -38,9 +38,7 @@ uploads:
 # -----------------------------------------------------------------------------
 # Settings related to application security and performance.
 # -----------------------------------------------------------------------------
-security:
-  # DoS and overload protection settings.
-  adaptive_shedding: false
+adaptive_shedding: false
 
 # -----------------------------------------------------------------------------
 # Database
