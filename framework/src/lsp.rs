@@ -1,8 +1,20 @@
 use actix::prelude::*;
-use tokio::sync::broadcast;
+use dashmap::DashMap;
+use lazy_static::lazy_static;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+
+// --- Global State ---
+
+struct FileInfo {
+    uri: Url,
+    client: Client,
+}
+
+lazy_static! {
+    static ref OPEN_FILES: DashMap<String, FileInfo> = DashMap::new();
+}
 
 // --- Actor Definition ---
 
@@ -12,6 +24,10 @@ impl Actor for LspActor {
     type Context = Context<Self>;
 
     fn started(&mut self, _ctx: &mut Self::Context) {
+        // Spawn the single, global error listener
+        tokio::spawn(listen_for_errors());
+
+        // Spawn the server to accept client connections
         tokio::spawn(async {
             log::info!("LSP server started on 127.0.0.1:9090");
             let listener = tokio::net::TcpListener::bind("127.0.0.1:9090").await.unwrap();
@@ -19,15 +35,15 @@ impl Actor for LspActor {
                 let (stream, _) = listener.accept().await.unwrap();
                 log::info!("LSP client connected");
                 let (read, write) = tokio::io::split(stream);
+
                 let (service, socket) = LspService::new(|client| Backend::new(client));
-                tokio::spawn(async move {
-                    Server::new(read, write, socket).serve(service).await;
-                });
+
+                tokio::spawn(Server::new(read, write, socket).serve(service));
             }
         });
     }
 
-    fn stopped(&mut self, ctx: &mut Self::Context) {
+    fn stopped(&mut self, _ctx: &mut Self::Context) {
         log::info!("LSP server actor stopped");
     }
 }
@@ -37,66 +53,55 @@ impl Actor for LspActor {
 #[derive(Debug)]
 pub struct Backend {
     client: Client,
-    error_rx: broadcast::Receiver<String>,
 }
 
 impl Backend {
     pub fn new(client: Client) -> Self {
-        let error_rx = crate::errors::ERROR_CHANNEL.subscribe();
-        Self { client, error_rx }
+        Self { client }
     }
+}
 
-    async fn listen_for_errors(&mut self) {
-        log::info!("LSP backend is now listening for errors from the broadcast channel.");
-        while let Ok(error_json) = self.error_rx.recv().await {
-            if let Ok(error) = serde_json::from_str::<crate::errors::DetailedError>(&error_json) {
-                let file_path = error.file_path.clone();
-                let message = match &error.error_source {
-                    Some(crate::errors::ErrorSource::Python(py_err)) => py_err.message.clone(),
-                    Some(crate::errors::ErrorSource::Template(tmpl_err)) => tmpl_err.detail.clone(),
-                    None => error.message.clone(),
-                };
+async fn listen_for_errors() {
+    let mut error_rx = crate::errors::ERROR_CHANNEL.subscribe();
+    while let Ok(error_json) = error_rx.recv().await {
+        if let Ok(error) = serde_json::from_str::<crate::errors::DetailedError>(&error_json) {
+            let file_path = error.file_path.clone();
 
-                let diagnostic = Diagnostic {
-                    range: Range {
-                        start: Position {
-                            line: error.line,
-                            character: error.column,
-                        },
-                        end: Position {
-                            line: error.line,
-                            character: error.column,
-                        },
-                    },
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    message,
-                    data: Some(serde_json::to_value(&error).unwrap()),
-                    ..Diagnostic::default()
-                };
+            let normalized_path = std::fs::canonicalize(&file_path)
+                .ok()
+                .and_then(|p| p.to_str().map(|s| s.to_string()))
+                .unwrap_or(file_path.clone());
 
-                // log::info!("Publishing diagnostic for file: {}", file_path);
+            let message = match &error.error_source {
+                Some(crate::errors::ErrorSource::Python(py_err)) => py_err.message.clone(),
+                Some(crate::errors::ErrorSource::Template(tmpl_err)) => tmpl_err.detail.clone(),
+                None => error.message.clone(),
+            };
 
-                // Canonicalize the file path to ensure it's absolute
-                if let Ok(absolute_path) = std::fs::canonicalize(&file_path) {
-                    if let Ok(url) = Url::from_file_path(absolute_path) {
-                        self.client
-                            .publish_diagnostics(
-                                url,
-                                vec![diagnostic],
-                                None,
-                            )
-                            .await;
-                    } else {
-                        log::error!("Failed to convert absolute path to URL for: {}", file_path);
-                    }
-                } else {
-                    log::error!("Failed to canonicalize file path: {}", file_path);
-                }
+            let diagnostic = Diagnostic {
+                range: Range {
+                    start: Position { line: error.line, character: error.column },
+                    end: Position { line: error.line, character: error.column + 1 },
+                },
+                severity: Some(DiagnosticSeverity::ERROR),
+                message,
+                data: Some(serde_json::to_value(&error).unwrap()),
+                ..Diagnostic::default()
+            };
+
+            if let Some(file_info) = OPEN_FILES.get(&normalized_path) {
+                file_info.client
+                    .publish_diagnostics(file_info.uri.clone(), vec![diagnostic], None)
+                    .await;
             } else {
-                log::error!("LSP backend failed to parse DetailedError from JSON.");
+                log::warn!(
+                    "File not found in global open_files map. Normalized: {}, Original: {}",
+                    normalized_path,
+                    file_path
+                );
+                log::debug!("All open files: {:?}", OPEN_FILES.iter().map(|r| r.key().clone()).collect::<Vec<_>>());
             }
         }
-        log::warn!("LSP backend stopped listening for errors. The broadcast channel may have been closed.");
     }
 }
 
@@ -109,7 +114,12 @@ impl LanguageServer for Backend {
                 name: "noventa-lsp".to_string(),
                 version: Some("0.1.0".to_string()),
             }),
-            capabilities: ServerCapabilities::default(),
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
+                ..ServerCapabilities::default()
+            },
         })
     }
 
@@ -117,15 +127,40 @@ impl LanguageServer for Backend {
         self.client
             .log_message(MessageType::INFO, "server initialized!")
             .await;
-        
-        let backend = Self::new(self.client.clone());
-        tokio::spawn(async move {
-            let mut backend = backend;
-            backend.listen_for_errors().await;
-        });
     }
 
     async fn shutdown(&self) -> Result<()> {
+        log::info!("LSP server shutting down");
         Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        if let Ok(file_path) = uri.to_file_path() {
+            if let Some(normalized_path) = file_path.canonicalize().ok().and_then(|p| p.to_str().map(|s| s.to_string())) {
+                log::debug!("File opened globally: {} -> {}", file_path.display(), normalized_path);
+                let info = FileInfo {
+                    uri,
+                    client: self.client.clone(),
+                };
+                OPEN_FILES.insert(normalized_path, info);
+            }
+        }
+    }
+
+    async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        let uri = params.text_document.uri.clone();
+        if let Ok(file_path) = uri.to_file_path() {
+            if let Some(normalized_path) = file_path.canonicalize().ok().and_then(|p| p.to_str().map(|s| s.to_string())) {
+                log::debug!("File closed globally: {}", normalized_path);
+                OPEN_FILES.remove(&normalized_path);
+            }
+        }
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        self.client
+            .publish_diagnostics(params.text_document.uri, vec![], None)
+            .await;
     }
 }

@@ -54,29 +54,40 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
 }
 
 pub fn log_detailed_error(detailed_error: &DetailedError) {
-    if let Err(e) = ERROR_CHANNEL.send(detailed_error.to_json()) {
+    let mut error_clone = detailed_error.clone();
+
+    // Clean the path to remove any `./` components.
+    let cleaned_path = path_clean::clean(&detailed_error.file_path);
+
+    // Try to canonicalize the path to get an absolute path.
+    if let Ok(canonical_path) = std::fs::canonicalize(&cleaned_path) {
+        error_clone.file_path = canonical_path.to_string_lossy().to_string();
+    } else {
+        // Fallback to the cleaned path if canonicalization fails.
+        error_clone.file_path = cleaned_path.to_string_lossy().to_string();
+    }
+
+    if let Err(e) = ERROR_CHANNEL.send(error_clone.to_json()) {
         log::error!("Failed to send error to ERROR_CHANNEL: {}", e);
     }
     log::error!("");
-    if let Some(route) = &detailed_error.route {
+    if let Some(route) = &error_clone.route {
         log::error!("Page: {}", route);
     }
-    if let Some(template) = &detailed_error.page {
+    if let Some(template) = &error_clone.page {
         log::error!("Template: {}", template.name);
     }
-    if let Some(component) = &detailed_error.component {
+    if let Some(component) = &error_clone.component {
         log::error!("Component: {}", component.name);
     }
     log::error!("");
 
-    if let Some(error_source) = &detailed_error.error_source {
+    if let Some(error_source) = &error_clone.error_source {
         match error_source {
             crate::errors::ErrorSource::Python(py_err) => {
                 log::error!("Error: {}", py_err.message);
                 log::error!("Type: Python Error");
-                if let Some(path) = &py_err.filename {
-                    log::error!("File: {}", path);
-                }
+                log::error!("File: {}", error_clone.file_path);
                 log::error!("");
 
                 if let (Some(code), Some(line_num)) = (py_err.source_code.as_ref(), py_err.line_number) {

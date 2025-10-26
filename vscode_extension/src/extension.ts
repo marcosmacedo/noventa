@@ -45,9 +45,25 @@ export async function activate(context: vscode.ExtensionContext) {
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: 'file', language: 'plaintext' }],
+    documentSelector: [
+      { scheme: 'file', language: 'python' },
+      { scheme: 'file', language: 'html' },
+    ],
     outputChannel,
     traceOutputChannel: outputChannel,
+    middleware: {
+      handleDiagnostics: (uri, diagnostics, next) => {
+        outputChannel.appendLine(`Received diagnostics for ${uri.toString()}:`);
+        for (const diagnostic of diagnostics) {
+          outputChannel.appendLine(`  - [${diagnostic.severity}] ${diagnostic.message}`);
+          const anyDiagnostic = diagnostic as any;
+          if (anyDiagnostic.data) {
+            outputChannel.appendLine(`    Full error: ${JSON.stringify(anyDiagnostic.data, null, 2)}`);
+          }
+        }
+        next(uri, diagnostics);
+      },
+    },
   };
 
   client = new LanguageClient(
@@ -58,16 +74,6 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   await client.start();
-
-  client.onNotification('textDocument/publishDiagnostics', (params) => {
-    outputChannel.appendLine(`Received diagnostics for ${params.uri}:`);
-    for (const diagnostic of params.diagnostics) {
-      outputChannel.appendLine(`  - [${diagnostic.severity}] ${diagnostic.message}`);
-      if (diagnostic.data) {
-        outputChannel.appendLine(`    Full error: ${JSON.stringify(diagnostic.data, null, 2)}`);
-      }
-    }
-  });
 }
 
 export function deactivate(): Thenable<void> | undefined {
