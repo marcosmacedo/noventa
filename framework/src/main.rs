@@ -241,7 +241,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
             config::SessionBackend::Cookie => {
                 session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()))
             }
-            config::SessionBackend::InMemory => {
+            config::SessionBackend::Memory => {
                 session::RuntimeSessionStore::InMemory(session::InMemoryBackend::new())
             }
             config::SessionBackend::Redis => {
