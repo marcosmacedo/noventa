@@ -133,6 +133,7 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
         let result_value: serde_json::Value = Python::attach(|py| {
             let module = if self.dev_mode {
                 let importlib = py.import("importlib").map_err(|e| pyerr_to_pyerror(e, py))?;
+                importlib.call_method0("invalidate_caches").map_err(|e| pyerr_to_pyerror(e, py))?;
                 let import_module = importlib.getattr("import_module").map_err(|e| pyerr_to_pyerror(e, py))?;
                 let module = import_module.call1((&msg.module_path,)).map_err(|e| pyerr_to_pyerror(e, py))?;
                 let reload = importlib.getattr("reload").map_err(|e| pyerr_to_pyerror(e, py))?;
