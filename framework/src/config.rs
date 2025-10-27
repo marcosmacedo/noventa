@@ -38,7 +38,7 @@ impl From<serde_yaml::Error> for ConfigError {
 #[serde(rename_all = "kebab-case")]
 pub enum SessionBackend {
     Cookie,
-    InMemory,
+    Memory,
     Redis,
 }
 
