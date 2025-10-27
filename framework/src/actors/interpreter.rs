@@ -190,8 +190,8 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
 
             // Load the embedded Python utils from the new path
             let utils_code = CString::new(crate::scripts::python_embed::UTILS_PY).unwrap();
-            let utils_filename = CString::new("utils.py").unwrap();
-            let utils_module_name = CString::new("utils").unwrap();
+            let utils_filename = CString::new("_noventa_internal_dispatch.py").unwrap();
+            let utils_module_name = CString::new("_noventa_internal_dispatch").unwrap();
             let utils_module = PyModule::from_code(py, &utils_code, &utils_filename, &utils_module_name)
                 .map_err(|e| pyerr_to_pyerror(e, py))?;
             let wrapper_func = utils_module.getattr("call_user_function")
