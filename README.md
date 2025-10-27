@@ -1,4 +1,4 @@
-![Noventa Banner](banner.webp)
+![Noventa Banner](banner.jpeg)
 ---
 
 ## 🪩 The Web Framework That Feels Like a Party for Developers
@@ -32,18 +32,6 @@ Coding should feel creative, collaborative, and energizing. Noventa turns your w
 
 ---
 
-## 🧠 Philosophy
-
-Noventa is for the **90%** — the people who want to build, not over-engineer.
-We believe:
-
-* Code should be **expressive**, not exhausting.
-* Frameworks should **help**, not dictate.
-* AI and humans can **co-create**, not compete.
-* Every developer deserves to **enjoy** the process.
-
----
-
 ## 🪄 Core Features
 
 | Feature                   | Description                                                   |
@@ -59,19 +47,7 @@ We believe:
 
 ## 🏁 Quick Start
 
-```bash
-# Install Noventa (example command)
-pip install noventa
-
-# Create a new project
-noventa new my-cool-app
-
-# Run the development server
-cd my-cool-app
-noventa dev
-```
-
-Visit **[http://localhost:9000](http://localhost:9000)** and start the party. 🎈
+See the docs
 
 ---
 
@@ -90,7 +66,6 @@ Join the **Noventa Movement**:
 ## 🪅 License
 
 Licensed under the **MIT License**.
-Use it, remix it, share it — just don’t forget to dance a little while coding. 💃🕺
 
 ---
 
