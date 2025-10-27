@@ -19,6 +19,7 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
     context.insert("error", minijinja::Value::from_serialize(detailed_error));
 
     if let Some(error_source) = &detailed_error.error_source {
+
         let (source_code, line_number) = match error_source {
             crate::errors::ErrorSource::Python(py_err) => (py_err.source_code.as_ref(), py_err.line_number),
             crate::errors::ErrorSource::Template(tmpl_err) => (tmpl_err.source_code.as_ref(), Some(tmpl_err.line)),
@@ -56,16 +57,12 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
 pub fn log_detailed_error(detailed_error: &DetailedError) {
     let mut error_clone = detailed_error.clone();
 
-    // Clean the path to remove any `./` components.
-    let cleaned_path = path_clean::clean(&detailed_error.file_path);
+    let normalized_path = std::fs::canonicalize(&error_clone.file_path)
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+        .unwrap_or(error_clone.file_path.clone());
 
-    // Try to canonicalize the path to get an absolute path.
-    if let Ok(canonical_path) = std::fs::canonicalize(&cleaned_path) {
-        error_clone.file_path = canonical_path.to_string_lossy().to_string();
-    } else {
-        // Fallback to the cleaned path if canonicalization fails.
-        error_clone.file_path = cleaned_path.to_string_lossy().to_string();
-    }
+    error_clone.file_path = normalized_path;
 
     if let Err(e) = ERROR_CHANNEL.send(error_clone.to_json()) {
         log::error!("Failed to send error to ERROR_CHANNEL: {}", e);
