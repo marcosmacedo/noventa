@@ -15,7 +15,7 @@ steps:
         next_step: "[END]"
 
   explain_create_migration:
-    text: "To create a new migration script after changing your database models, you run a command. The command is `alembic revision --autogenerate -m \"Your message\"`. This will create a new file in the `web/database/versions/` directory. You should review this file before applying it."
+    text: "To create a new migration script after changing your database models, you run a command. The command is `alembic revision --autogenerate -m \"Your message\"`. This will create a new file in the `./migrations/versions/` directory. You should review this file before applying it."
     options:
       - label: "How do I apply the migration?"
         next_step: "explain_apply_migration"

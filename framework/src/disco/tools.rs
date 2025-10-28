@@ -517,10 +517,10 @@ impl ToolManager {
         };
         manager.register_tool(Arc::new(ReadFileTool));
         manager.register_tool(Arc::new(ListDirectoryTool));
-        manager.register_tool(Arc::new(CreateDirectoryTool));
-        manager.register_tool(Arc::new(WriteFileTool));
-        manager.register_tool(Arc::new(DeleteDirectoryTool));
-        manager.register_tool(Arc::new(DeleteFileTool));
+        // manager.register_tool(Arc::new(CreateDirectoryTool));
+        // manager.register_tool(Arc::new(WriteFileTool));
+        // manager.register_tool(Arc::new(DeleteDirectoryTool));
+        // manager.register_tool(Arc::new(DeleteFileTool));
         manager
     }
 
