@@ -53,7 +53,29 @@ pub fn render_structured_debug_error(detailed_error: &DetailedError) -> String {
     add_marker_and_scripts(&mut rendered);
     rendered
 }
+pub fn render_production_error(detailed_error: &DetailedError) -> String {
+    log_production_error(detailed_error);
+    "<h1>Internal Server Error</h1><p>An unexpected error occurred.</p>".to_string()
+}
 
+
+pub fn log_production_error(detailed_error: &DetailedError) {
+    log::error!("An error occurred on route: {}", detailed_error.route.as_deref().unwrap_or("unknown"));
+    if let Some(error_source) = &detailed_error.error_source {
+        match error_source {
+            crate::errors::ErrorSource::Python(py_err) => {
+                log::error!("Type: Python Error");
+                log::error!("Message: {}", py_err.message);
+                log::error!("File: {}", detailed_error.file_path);
+            }
+            crate::errors::ErrorSource::Template(tmpl_err) => {
+                log::error!("Type: Template Error");
+                log::error!("Message: {}", tmpl_err.detail);
+                log::error!("File: {}", tmpl_err.name);
+            }
+        }
+    }
+}
 pub fn log_detailed_error(detailed_error: &DetailedError) {
     let mut error_clone = detailed_error.clone();
 
