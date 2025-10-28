@@ -42,6 +42,32 @@ def find_libpython_path():
         print(f"Error finding libpython: {e}")
         return None
 
+def find_python_dll_path():
+    """Get the path to python310.dll on Windows."""
+    try:
+        python_dir = "/Users/marcos/Downloads/python_windows"
+        dll_name = "python310.dll"
+        dll_path = os.path.join(python_dir, dll_name)
+
+        if os.path.exists(dll_path):
+            print(f"Found {dll_name} at: {dll_path}")
+            return dll_path
+        else:
+            print(f"Warning: {dll_name} not found in {python_dir}")
+            # Fallback to checking the directory of the current Python executable
+            python_executable_path = sys.executable
+            python_executable_dir = os.path.dirname(python_executable_path)
+            dll_path_fallback = os.path.join(python_executable_dir, dll_name)
+            if os.path.exists(dll_path_fallback):
+                print(f"Found {dll_name} in fallback location: {dll_path_fallback}")
+                return dll_path_fallback
+            else:
+                print(f"Warning: {dll_name} not found in fallback location {python_executable_dir} either.")
+                return None
+    except Exception as e:
+        print(f"Error finding {dll_name}: {e}")
+        return None
+
 def run_command(command, cwd):
     process = subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, shell=True, universal_newlines=True)
     
@@ -76,7 +102,7 @@ def run_command_allow_fail(command, cwd):
         print(stderr, end='')
     return process.returncode, stdout, stderr
 
-def package_wheel(out_dir, binary_src, platform):
+def package_wheel(out_dir, binary_src_or_dir, platform, dll_path=None):
     """Packages the native binary into a pip wheel."""
     framework_dir = 'framework'
     platform_out_dir = os.path.join(out_dir, platform)
@@ -94,11 +120,17 @@ def package_wheel(out_dir, binary_src, platform):
 
         target_dir = os.path.join(out_pkg_dir, "src", "noventa")
         noventa_bin_dir = os.path.join(target_dir, "noventa_bin")
-        os.makedirs(noventa_bin_dir, exist_ok=True)
-        pkg_dest = os.path.join(noventa_bin_dir, "noventa")
+        
+        if os.path.exists(noventa_bin_dir):
+            shutil.rmtree(noventa_bin_dir)
 
-        if os.path.exists(binary_src):
-            shutil.copy(binary_src, pkg_dest)
+        if os.path.isdir(binary_src_or_dir):
+            shutil.copytree(binary_src_or_dir, noventa_bin_dir)
+            print(f"Copied binary directory into working python package for {platform} at {noventa_bin_dir}")
+        elif os.path.exists(binary_src_or_dir):
+            os.makedirs(noventa_bin_dir, exist_ok=True)
+            pkg_dest = os.path.join(noventa_bin_dir, "noventa")
+            shutil.copy(binary_src_or_dir, pkg_dest)
             try:
                 os.chmod(pkg_dest, 0o755)
             except Exception:
@@ -107,6 +139,11 @@ def package_wheel(out_dir, binary_src, platform):
         else:
             print(f"Skipping python wheel build for {platform} because binary was not produced.")
             return
+
+        if dll_path and os.path.exists(dll_path):
+            dll_dest = os.path.join(noventa_bin_dir, os.path.basename(dll_path))
+            shutil.copy(dll_path, dll_dest)
+            print(f"Copied DLL into working python package for {platform} at {dll_dest}")
 
         starter_src = os.path.join(framework_dir, "starter")
         starter_dest = os.path.join(target_dir, "starter")
@@ -168,20 +205,23 @@ def build_rust_framework(out_dir):
         
         macos_out_dir = os.path.join(out_dir, "macos")
         os.makedirs(macos_out_dir, exist_ok=True)
+        
+        noventa_bin_dir = os.path.join(macos_out_dir, "noventa_bin")
+        os.makedirs(noventa_bin_dir, exist_ok=True)
 
         binary_src = os.path.join(framework_dir, "target", "release", "noventa")
         if os.path.exists(binary_src):
-            dest = os.path.join(macos_out_dir, "noventa")
+            dest = os.path.join(noventa_bin_dir, "noventa")
             shutil.copy(binary_src, dest)
             print(f"Copied binary to {dest}")
 
             libpython_path = find_libpython_path()
             if libpython_path:
-                libpython_dest = os.path.join(macos_out_dir, os.path.basename(libpython_path))
+                libpython_dest = os.path.join(noventa_bin_dir, os.path.basename(libpython_path))
                 shutil.copy(libpython_path, libpython_dest)
                 print(f"Copied {libpython_path} to {libpython_dest}")
 
-                noventa_binary_path = os.path.join(macos_out_dir, "noventa")
+                noventa_binary_path = os.path.join(noventa_bin_dir, "noventa")
                 if os.path.exists(noventa_binary_path):
                     otool_cmd = f"otool -L {noventa_binary_path} | grep libpython"
                     try:
@@ -203,7 +243,7 @@ def build_rust_framework(out_dir):
                     except Exception as e:
                         print(f"Error running otool or install_name_tool: {e}")
             
-            package_wheel(out_dir, dest, "macos")
+            package_wheel(out_dir, noventa_bin_dir, "macos")
         else:
             print(f"Warning: expected binary at {binary_src} not found")
     
@@ -235,7 +275,10 @@ def build_rust_framework(out_dir):
         dest = os.path.join(windows_out_dir, "noventa.exe")
         shutil.copy(binary_src, dest)
         print(f"Copied binary to {dest}")
-        package_wheel(out_dir, dest, "windows")
+
+        # Always try to find and copy the DLL when cross-compiling for windows
+        python_dll_path = find_python_dll_path()
+        package_wheel(out_dir, dest, "windows", dll_path=python_dll_path)
     else:
         print(f"Warning: expected binary at {binary_src} not found")
 

@@ -9,7 +9,7 @@ config_path = os.path.join(os.getcwd(), 'config.yaml')
 secret_key = binascii.hexlify(os.urandom(32)).decode('utf-8')
 
 # Read the content of the config.yaml file
-with open(config_path, 'r') as f:
+with open(config_path, 'r', encoding='utf-8') as f:
     content = f.read()
 
 # Replace the placeholder with the new secret key
@@ -20,5 +20,5 @@ content = re.sub(
 )
 
 # Write the updated content back to the config.yaml file
-with open(config_path, 'w') as f:
+with open(config_path, 'w', encoding='utf-8') as f:
     f.write(content)

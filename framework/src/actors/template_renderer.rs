@@ -160,6 +160,7 @@ impl TemplateRendererActor {
         let session_manager_clone = msg.session_manager.clone();
         let components_clone = self.components.clone();
         let action_context = Arc::new(action_context);
+        let form_component_id = form_component_id.clone();
 
         env.add_function(
             "component",
@@ -169,55 +170,77 @@ impl TemplateRendererActor {
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let context_result = if name == form_component_id {
-                    Ok(action_context.as_ref().as_ref().unwrap().clone())
-                } else {
-                    let component = components_clone.iter().find(|c| c.id == name).unwrap();
-                    let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
+                let component = components_clone.iter().find(|c| c.id == name).unwrap();
+                let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
 
-                    let execute_fn_msg = ExecuteFunction {
-                        module_path,
-                        function_name: "load_template_context".to_string(),
-                        request: request_info_clone.clone(),
-                        args: Some(kwargs_map),
-                        session_manager: session_manager_clone.clone(),
-                    };
+                let execute_fn_msg = ExecuteFunction {
+                    module_path,
+                    function_name: "load_template_context".to_string(),
+                    request: request_info_clone.clone(),
+                    args: Some(kwargs_map),
+                    session_manager: session_manager_clone.clone(),
+                };
 
-                    let python_start_time = std::time::Instant::now();
-                    let future = interpreter_clone.send(execute_fn_msg);
-                    let result = futures::executor::block_on(future);
-                    let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
-                    health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
+                let python_start_time = std::time::Instant::now();
+                let future = interpreter_clone.send(execute_fn_msg);
+                let result = futures::executor::block_on(future);
+                let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
+                health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
 
-                    match result {
-                        Ok(Ok(res)) => Ok(res.context),
-                        Ok(Err(py_err)) => {
-                            let detailed_error = DetailedError {
-                                component: Some(ComponentInfo { name: name.clone() }),
-                                error_source: Some(ErrorSource::Python(py_err.clone())),
-                                message: py_err.message.clone(),
-                                file_path: py_err.filename.clone().unwrap_or_default(),
-                                line: py_err.line_number.unwrap_or(0) as u32,
-                                column: py_err.column_number.unwrap_or(0) as u32,
-                                end_line: py_err.end_line_number.map(|l| l as u32),
-                                end_column: py_err.end_column_number.map(|c| c as u32),
-                                ..Default::default()
-                            };
-                            let err = minijinja::Error::new(
-                                minijinja::ErrorKind::InvalidOperation,
-                                "Python function crashed",
-                            );
-                            Err(err.with_source(detailed_error))
-                        }
-                        Err(e) => {
-                            log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                            Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
-                        }
+                let context_result = match result {
+                    Ok(Ok(res)) => Ok(res.context),
+                    Ok(Err(py_err)) => {
+                        let detailed_error = DetailedError {
+                            component: Some(ComponentInfo { name: name.clone() }),
+                            error_source: Some(ErrorSource::Python(py_err.clone())),
+                            message: py_err.message.clone(),
+                            file_path: py_err.filename.clone().unwrap_or_default(),
+                            line: py_err.line_number.unwrap_or(0) as u32,
+                            column: py_err.column_number.unwrap_or(0) as u32,
+                            end_line: py_err.end_line_number.map(|l| l as u32),
+                            end_column: py_err.end_column_number.map(|c| c as u32),
+                            ..Default::default()
+                        };
+                        let err = minijinja::Error::new(
+                            minijinja::ErrorKind::InvalidOperation,
+                            "Python function crashed",
+                        );
+                        Err(err.with_source(detailed_error))
+                    }
+                    Err(e) => {
+                        log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
+                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
                     }
                 };
 
                 match context_result {
                     Ok(context) => {
+                        let mut final_context = context;
+                        // If this is the component that handled the POST request, merge the action context.
+                        if name == form_component_id {
+                            if let Some(action_ctx) = action_context.as_ref().as_ref() {
+                                let get_ctx_result = serde_json::to_value(&final_context);
+                                let action_ctx_result = serde_json::to_value(action_ctx);
+
+                                let mut get_ctx_map: serde_json::Value = match get_ctx_result {
+                                    Ok(val) => val,
+                                    Err(e) => return Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Failed to serialize context").with_source(e)),
+                                };
+
+                                let action_ctx_map: serde_json::Value = match action_ctx_result {
+                                    Ok(val) => val,
+                                    Err(e) => return Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Failed to serialize action context").with_source(e)),
+                                };
+
+                                if let (Some(get_map), Some(action_map)) = (get_ctx_map.as_object_mut(), action_ctx_map.as_object()) {
+                                    for (k, v) in action_map.iter() {
+                                        get_map.insert(k.clone(), v.clone());
+                                    }
+                                }
+                                final_context = Value::from_serialize(get_ctx_map);
+                            }
+                        }
+
                         let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
                             minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                         })?;
@@ -226,7 +249,7 @@ impl TemplateRendererActor {
                             template_path = template_path[2..].to_string();
                         }
                         let tmpl = state.env().get_template(&template_path)?;
-                        let mut result = tmpl.render(context)?;
+                        let mut result = tmpl.render(final_context)?;
 
                         let re = Regex::new(r"(<form[^>]*>)").unwrap();
                         let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
@@ -349,9 +372,6 @@ pub struct RenderTemplate {
 #[rtype(result = "()")]
 pub struct UpdateComponents(pub Vec<Component>);
 
-#[derive(Message, Clone)]
-#[rtype(result = "()")]
-pub struct UpdateSingleComponent(pub Component);
 
 impl Handler<RenderTemplate> for TemplateRendererActor {
     type Result = Result<String, DetailedError>;
@@ -486,17 +506,6 @@ impl Handler<UpdateComponents> for TemplateRendererActor {
     }
 }
 
-impl Handler<UpdateSingleComponent> for TemplateRendererActor {
-    type Result = ();
-
-    fn handle(&mut self, msg: UpdateSingleComponent, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(component) = self.components.iter_mut().find(|c| c.id == msg.0.id) {
-            *component = msg.0;
-        } else {
-            self.components.push(msg.0);
-        }
-    }
-}
 
 fn path_to_module(path_str: &str) -> Result<String, std::io::Error> {
     let path = std::path::Path::new(path_str);

@@ -1,4 +1,8 @@
 {
   "project_name": "noventa-web",
-  "project_description": "A new Noventa project."
+  "project_description": "A new Noventa project.",
+  "__prompts__": {
+    "project_name": "Enter a name for your project",
+    "project_description": "Enter a short description for your project"
+  }
 }

@@ -17,21 +17,18 @@
 # -----------------------------------------------------------------------------
 # These settings control how file uploads are handled by the application.
 # -----------------------------------------------------------------------------
-uploads:
-  # Path to the static files directory. Can be relative or absolute.
-  # If commented out or not present, static file serving will be disabled.
-  static_path: "./files"
+# Path to the static files directory. Can be relative or absolute.
+# If commented out or not present, static file serving will be disabled.
+static_path: "./files"
+# The URL prefix for static files. Defaults to "/static" if not specified.
+static_url_prefix: "/files"
+# Maximum size in bytes for in-memory file uploads. Files larger than this
+# will be streamed to a temporary file on disk. Default is 10 MB.
+max_memory_size: 10485760 # 10 * 1024 * 1024
 
-  # The URL prefix for static files. Defaults to "/static" if not specified.
-  static_url_prefix: "/files"
-
-  # Maximum size in bytes for in-memory file uploads. Files larger than this
-  # will be streamed to a temporary file on disk. Default is 10 MB.
-  max_memory_size: 10485760 # 10 * 1024 * 1024
-
-  # Directory for temporary file uploads. If not specified, the system's
-  # temporary directory will be used.
-  #temp_dir: "noventa-uploads"
+# Directory for temporary file uploads. If not specified, the system's
+# temporary directory will be used.
+#temp_dir: "noventa-uploads"
 
 # -----------------------------------------------------------------------------
 # Security & Performance
@@ -56,32 +53,24 @@ database: "sqlite:///./noventa.db"
 session:
   # Session backend. Supported values:
   # "cookie": Client-side cookie store.
-  # "in-memory": Server-side, in-memory store.
+  # "memory": Server-side, in-memory store.
   # "redis": Server-side Redis store.
-  backend: "in-memory"
-
+  backend: "memory"
   # A secret string at least 64 characters long. This is critical for security.
   # IMPORTANT: This was randomly generated during project creation. Keep it secret!
   secret_key: "!!!REPLACE-ME-WITH-A-REAL-SECRET-KEY!!!"
-
   # The name of the cookie that will be sent to the browser.
   cookie_name: "noventa_session"
-
   # If true, the cookie will only be sent over HTTPS. (Set to true in production)
   cookie_secure: false
-
   # If true, the cookie cannot be accessed by client-side JavaScript. (Highly recommended)
   cookie_http_only: true
-
   # The URL path for which the cookie is valid. "/" means the entire site.
   cookie_path: "/"
-
   # Max age of the cookie in seconds.
   cookie_max_age: 86400 # 24 * 60 * 60
-
   # Redis connection URL (used if session backend is "redis").
   redis_url: "redis://127.0.0.1/"
-
   # Redis connection pool size.
   redis_pool_size: 10
 
@@ -91,18 +80,17 @@ session:
 # Settings for the built-in web server.
 # -----------------------------------------------------------------------------
 
-  # Server IP bind for the web server
-  server_address: 127.0.0.1
-
-  # Port binding for the web server
-  port: 8080
+# Server IP bind for the web server
+server_address: 127.0.0.1
+# Port binding for the web server
+port: 8080
 
 # -----------------------------------------------------------------------------
 # Resource Allocation
 # -----------------------------------------------------------------------------
 # Settings for thread allocation for various components.
 # -----------------------------------------------------------------------------
-  core_allocation:
-    python_threads: 2
-    template_renderer_threads: 1
-    actix_web_threads: 1
+core_allocation:
+  python_threads: 2
+  template_renderer_threads: 1
+  actix_web_threads: 1
