@@ -76,114 +76,43 @@ def run_command_allow_fail(command, cwd):
         print(stderr, end='')
     return process.returncode, stdout, stderr
 
-def build_rust_framework(out_dir):
+def package_wheel(out_dir, binary_src, platform):
+    """Packages the native binary into a pip wheel."""
     framework_dir = 'framework'
-    # By default build a native Rust binary using `cargo build --release`.
-    # This avoids using maturin which can produce wheels that bundle Python
-    # and (depending on the build environment) end up statically linking libpython.
-    # If you still want a Python wheel built by maturin, set the env var
-    # USE_MATURIN=1 when running this script.
-    use_maturin = os.environ.get("USE_MATURIN") == "1"
+    platform_out_dir = os.path.join(out_dir, platform)
+    os.makedirs(platform_out_dir, exist_ok=True)
 
-    if use_maturin:
-        print("Building Rust framework with maturin (wheel)...")
-        targets = [
-            "aarch64-apple-darwin",
-        ]
-        for target in targets:
-            print(f"Building wheel for target: {target}")
-            run_command(f"maturin build --release -i {sys.executable} --target {target} --out {os.path.join('..', out_dir)}", cwd=framework_dir)
-        return
-
-    # Build a native binary. This will link to the Python library that the
-    # pyo3 build-config finds on the build machine (preferably a shared lib).
-    print("Building Rust framework as a native binary with cargo...")
-    # You can add extra targets if you have cross toolchains set up.
-    run_command("cargo build --release", cwd=framework_dir)
-
-    # Copy the produced binary into the output dir so downstream packaging
-    # (the VSCode extension, etc.) can pick it up easily.
-    binary_src = os.path.join(framework_dir, "target", "release", "noventa")
-    if os.path.exists(binary_src):
-        dest = os.path.join(out_dir, "noventa")
-        shutil.copy(binary_src, dest)
-        print(f"Copied binary to {dest}")
-    else:
-        print(f"Warning: expected binary at {binary_src} not found")
-
-    # If on macOS, bundle libpython
-    if sys.platform == "darwin":
-        libpython_path = find_libpython_path()
-        if libpython_path:
-            # Copy libpython to be alongside the noventa binary
-            libpython_dest = os.path.join(out_dir, os.path.basename(libpython_path))
-            shutil.copy(libpython_path, libpython_dest)
-            print(f"Copied {libpython_path} to {libpython_dest}")
-
-            # Modify the noventa binary to look for libpython in the same directory
-            noventa_binary_path = os.path.join(out_dir, "noventa")
-            if os.path.exists(noventa_binary_path):
-                # Get the original path from the binary's perspective
-                otool_cmd = f"otool -L {noventa_binary_path} | grep libpython"
-                try:
-                    otool_proc = subprocess.run(otool_cmd, shell=True, capture_output=True, text=True)
-                    if otool_proc.returncode == 0 and otool_proc.stdout:
-                        original_lib_path = otool_proc.stdout.strip().split(" ")[0]
-                        new_lib_path = f"@loader_path/{os.path.basename(libpython_path)}"
-                        
-                        print(f"Changing library path from {original_lib_path} to {new_lib_path}")
-                        install_cmd = f"install_name_tool -change {original_lib_path} {new_lib_path} {noventa_binary_path}"
-                        run_command(install_cmd, cwd=".")
-
-                        # Also remove the old rpath to ensure it's not used
-                        rpath_cmd = f"install_name_tool -delete_rpath {os.path.dirname(original_lib_path)} {noventa_binary_path}"
-                        run_command_allow_fail(rpath_cmd, cwd=".")
-
-                        print("Successfully updated binary to use bundled libpython.")
-                    else:
-                        print("Warning: Could not determine original libpython path with otool.")
-                except Exception as e:
-                    print(f"Error running otool or install_name_tool: {e}")
-
-    # Package the native binary into a pip wheel, but operate on a copy of
-    # the python_package tree inside the output directory so we don't mutate the repo.
     try:
         repo_pkg_dir = os.path.join("python_package")
-        out_pkg_dir = os.path.join(out_dir, "python_package")
-        abs_out_dir = os.path.abspath(out_dir)
+        out_pkg_dir = os.path.join(platform_out_dir, "python_package")
+        abs_platform_out_dir = os.path.abspath(platform_out_dir)
 
-        # Remove any existing copy in out/ and copy the repo python_package into out/
         if os.path.exists(out_pkg_dir):
             shutil.rmtree(out_pkg_dir)
         shutil.copytree(repo_pkg_dir, out_pkg_dir)
-        print(f"Created working python package at {out_pkg_dir}")
+        print(f"Created working python package for {platform} at {out_pkg_dir}")
 
-        # Define the target directory for the binary and templates
         target_dir = os.path.join(out_pkg_dir, "src", "noventa")
-
-        # Copy binary into the working package
         noventa_bin_dir = os.path.join(target_dir, "noventa_bin")
         os.makedirs(noventa_bin_dir, exist_ok=True)
         pkg_dest = os.path.join(noventa_bin_dir, "noventa")
+
         if os.path.exists(binary_src):
             shutil.copy(binary_src, pkg_dest)
             try:
                 os.chmod(pkg_dest, 0o755)
             except Exception:
                 pass
-            print(f"Copied binary into working python package at {pkg_dest}")
+            print(f"Copied binary into working python package for {platform} at {pkg_dest}")
         else:
-            print("Skipping python wheel build because binary was not produced.")
+            print(f"Skipping python wheel build for {platform} because binary was not produced.")
             return
 
-        # Copy the starter template directory into the working package
         starter_src = os.path.join(framework_dir, "starter")
         starter_dest = os.path.join(target_dir, "starter")
         if os.path.exists(starter_src):
             if os.path.exists(starter_dest):
                 shutil.rmtree(starter_dest)
-            #  `copy_function=shutil.copy` is used to ensure that all files, including hidden ones (dotfiles), are copied.
-            # Use a robust copytree that includes dotfiles but ignores .DS_Store
             shutil.copytree(
                 starter_src,
                 starter_dest,
@@ -191,46 +120,124 @@ def build_rust_framework(out_dir):
                 copy_function=shutil.copy2,
                 dirs_exist_ok=True
             )
-            print(f"Copied starter templates into working python package at {starter_dest}")
+            print(f"Copied starter templates into working python package for {platform} at {starter_dest}")
         else:
-            print(f"No starter directory at {starter_src}; skipping starter copy")
+            print(f"No starter directory at {starter_src}; skipping starter copy for {platform}")
 
-        # Build the wheel using the working package directory. Output the wheel
-        # directly into the top-level out directory (abs path) so it's easy to find.
-        print("Building pip wheel that contains the native binary (trying 'python -m build')...")
-        cmd_build = f"{sys.executable} -m build --wheel --outdir {abs_out_dir}"
+        print(f"Building pip wheel for {platform} (trying 'python -m build')...")
+        cmd_build = f"{sys.executable} -m build --wheel --outdir {abs_platform_out_dir}"
         rc, _, _ = run_command_allow_fail(cmd_build, cwd=out_pkg_dir)
         if rc != 0:
-            print("'python -m build' failed; trying to install 'build' into this Python and retrying...")
-            # Try to install the build package into the interpreter and retry
+            print(f"'python -m build' failed for {platform}; trying to install 'build' and retrying...")
             install_cmd = f"{sys.executable} -m pip install --upgrade build"
             rc_install, _, _ = run_command_allow_fail(install_cmd, cwd=out_pkg_dir)
             if rc_install == 0:
-                print("Installed 'build'; retrying python -m build...")
+                print(f"Installed 'build'; retrying python -m build for {platform}...")
                 rc_retry, _, _ = run_command_allow_fail(cmd_build, cwd=out_pkg_dir)
                 if rc_retry == 0:
-                    print("Wheel built successfully using python -m build after installing build.")
+                    print(f"Wheel for {platform} built successfully using python -m build after installing build.")
                 else:
-                    print("Retry after installing 'build' still failed; falling back to 'pip wheel'...")
-                    cmd_pip_wheel = f"{sys.executable} -m pip wheel . --wheel-dir {abs_out_dir}"
+                    print(f"Retry for {platform} after installing 'build' still failed; falling back to 'pip wheel'...")
+                    cmd_pip_wheel = f"{sys.executable} -m pip wheel . --wheel-dir {abs_platform_out_dir}"
                     rc2, _, _ = run_command_allow_fail(cmd_pip_wheel, cwd=out_pkg_dir)
                     if rc2 != 0:
-                        print("Fallback 'pip wheel' also failed; aborting wheel build.")
+                        print(f"Fallback 'pip wheel' for {platform} also failed; aborting wheel build.")
                     else:
-                        print("Wheel built successfully using pip wheel.")
+                        print(f"Wheel for {platform} built successfully using pip wheel.")
             else:
-                print("Could not install 'build' into the interpreter; falling back to 'pip wheel'...")
-                cmd_pip_wheel = f"{sys.executable} -m pip wheel . --wheel-dir {abs_out_dir}"
+                print(f"Could not install 'build' for {platform}; falling back to 'pip wheel'...")
+                cmd_pip_wheel = f"{sys.executable} -m pip wheel . --wheel-dir {abs_platform_out_dir}"
                 rc2, _, _ = run_command_allow_fail(cmd_pip_wheel, cwd=out_pkg_dir)
                 if rc2 != 0:
-                    print("Fallback 'pip wheel' also failed; aborting wheel build.")
+                    print(f"Fallback 'pip wheel' for {platform} also failed; aborting wheel build.")
                 else:
-                    print("Wheel built successfully using pip wheel.")
+                    print(f"Wheel for {platform} built successfully using pip wheel.")
         else:
-            print("Wheel built successfully using python -m build.")
+            print(f"Wheel for {platform} built successfully using python -m build.")
 
     except Exception as e:
-        print(f"Error while preparing python package: {e}")
+        print(f"Error while preparing python package for {platform}: {e}")
+
+def build_rust_framework(out_dir):
+    framework_dir = 'framework'
+    
+    # Build for macOS
+    if sys.platform == "darwin":
+        print("Building Rust framework for macOS with cargo...")
+        run_command("cargo build --release", cwd=framework_dir)
+        
+        macos_out_dir = os.path.join(out_dir, "macos")
+        os.makedirs(macos_out_dir, exist_ok=True)
+
+        binary_src = os.path.join(framework_dir, "target", "release", "noventa")
+        if os.path.exists(binary_src):
+            dest = os.path.join(macos_out_dir, "noventa")
+            shutil.copy(binary_src, dest)
+            print(f"Copied binary to {dest}")
+
+            libpython_path = find_libpython_path()
+            if libpython_path:
+                libpython_dest = os.path.join(macos_out_dir, os.path.basename(libpython_path))
+                shutil.copy(libpython_path, libpython_dest)
+                print(f"Copied {libpython_path} to {libpython_dest}")
+
+                noventa_binary_path = os.path.join(macos_out_dir, "noventa")
+                if os.path.exists(noventa_binary_path):
+                    otool_cmd = f"otool -L {noventa_binary_path} | grep libpython"
+                    try:
+                        otool_proc = subprocess.run(otool_cmd, shell=True, capture_output=True, text=True)
+                        if otool_proc.returncode == 0 and otool_proc.stdout:
+                            original_lib_path = otool_proc.stdout.strip().split(" ")[0]
+                            new_lib_path = f"@loader_path/{os.path.basename(libpython_path)}"
+                            
+                            print(f"Changing library path from {original_lib_path} to {new_lib_path}")
+                            install_cmd = f"install_name_tool -change {original_lib_path} {new_lib_path} {noventa_binary_path}"
+                            run_command(install_cmd, cwd=".")
+
+                            rpath_cmd = f"install_name_tool -delete_rpath {os.path.dirname(original_lib_path)} {noventa_binary_path}"
+                            run_command_allow_fail(rpath_cmd, cwd=".")
+
+                            print("Successfully updated binary to use bundled libpython.")
+                        else:
+                            print("Warning: Could not determine original libpython path with otool.")
+                    except Exception as e:
+                        print(f"Error running otool or install_name_tool: {e}")
+            
+            package_wheel(out_dir, dest, "macos")
+        else:
+            print(f"Warning: expected binary at {binary_src} not found")
+    
+    # Cross-compile for Linux
+    print("Cross-compiling Rust framework for Linux with cargo zigbuild...")
+    run_command("cargo zigbuild --target x86_64-unknown-linux-gnu --release", cwd=framework_dir)
+    
+    linux_out_dir = os.path.join(out_dir, "linux")
+    os.makedirs(linux_out_dir, exist_ok=True)
+    
+    binary_src = os.path.join(framework_dir, "target", "x86_64-unknown-linux-gnu", "release", "noventa")
+    if os.path.exists(binary_src):
+        dest = os.path.join(linux_out_dir, "noventa")
+        shutil.copy(binary_src, dest)
+        print(f"Copied binary to {dest}")
+        package_wheel(out_dir, dest, "linux")
+    else:
+        print(f"Warning: expected binary at {binary_src} not found")
+
+    # Cross-compile for Windows
+    print("Cross-compiling Rust framework for Windows with cargo xwin...")
+    run_command("cargo xwin build --target x86_64-pc-windows-msvc --release", cwd=framework_dir)
+
+    windows_out_dir = os.path.join(out_dir, "windows")
+    os.makedirs(windows_out_dir, exist_ok=True)
+
+    binary_src = os.path.join(framework_dir, "target", "x86_64-pc-windows-msvc", "release", "noventa.exe")
+    if os.path.exists(binary_src):
+        dest = os.path.join(windows_out_dir, "noventa.exe")
+        shutil.copy(binary_src, dest)
+        print(f"Copied binary to {dest}")
+        package_wheel(out_dir, dest, "windows")
+    else:
+        print(f"Warning: expected binary at {binary_src} not found")
 
 def package_vscode_extension(out_dir):
     extension_dir = 'vscode_extension'

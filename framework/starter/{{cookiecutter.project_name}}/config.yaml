@@ -84,3 +84,25 @@ session:
 
   # Redis connection pool size.
   redis_pool_size: 10
+
+# -----------------------------------------------------------------------------
+# Web Server
+# -----------------------------------------------------------------------------
+# Settings for the built-in web server.
+# -----------------------------------------------------------------------------
+
+  # Server IP bind for the web server
+  server_address: 127.0.0.1
+
+  # Port binding for the web server
+  port: 8080
+
+# -----------------------------------------------------------------------------
+# Resource Allocation
+# -----------------------------------------------------------------------------
+# Settings for thread allocation for various components.
+# -----------------------------------------------------------------------------
+  core_allocation:
+    python_threads: 2
+    template_renderer_threads: 1
+    actix_web_threads: 1
