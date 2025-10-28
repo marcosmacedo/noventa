@@ -51,11 +51,19 @@ impl Handler<MatchRoute> for RouterActor {
         let path = msg.0;
 
         for (route_pattern, template_path) in routes.iter() {
-            let mut params = HashMap::new();
-            if let Some(captures) = path_to_regex(route_pattern).captures(&path) {
-                for name in path_to_regex(route_pattern).capture_names().flatten() {
+            let re = path_to_regex(route_pattern);
+            if let Some(captures) = re.captures(&path) {
+                let mut params = HashMap::new();
+                let original_param_names: Vec<&str> = route_pattern.split('/')
+                    .filter(|part| (part.starts_with('{') && part.ends_with('}')) || (part.starts_with('[') && part.ends_with(']')))
+                    .map(|part| &part[1..part.len() - 1])
+                    .collect();
+
+                for (i, name) in re.capture_names().flatten().enumerate() {
                     if let Some(value) = captures.name(name) {
-                        params.insert(name.to_string(), value.as_str().to_string());
+                        if let Some(original_name) = original_param_names.get(i) {
+                            params.insert(original_name.to_string(), value.as_str().to_string());
+                        }
                     }
                 }
                 let mut template_path_str = template_path.to_str().unwrap().to_string();
@@ -71,12 +79,26 @@ impl Handler<MatchRoute> for RouterActor {
 
 fn path_to_regex(path: &str) -> regex::Regex {
     let pattern = path.split('/').map(|part| {
-        if part.starts_with('{') && part.ends_with('}') {
+        if (part.starts_with('{') && part.ends_with('}')) || (part.starts_with('[') && part.ends_with(']')) {
             let param_name = &part[1..part.len() - 1];
-            format!(r"(?P<{}>[^/]+)", param_name)
+            let sanitized_param_name = param_name.replace('-', "_");
+            format!(r"(?P<{}>[^/]+)", sanitized_param_name)
         } else {
             regex::escape(part)
         }
     }).collect::<Vec<_>>().join("/");
-    regex::Regex::new(&format!("^{}$", pattern)).unwrap()
+
+    match regex::Regex::new(&format!("^{}$", pattern)) {
+        Ok(re) => re,
+        Err(e) => {
+            log::error!(
+                "Failed to compile regex for path: '{}'. Error: {}. \
+                Note: Route parameters used as regex capture groups cannot contain hyphens. \
+                Please use underscores instead (e.g., [product_id]).",
+                path, e
+            );
+            // Return a regex that will never match to prevent panic.
+            regex::Regex::new("$^").unwrap()
+        }
+    }
 }

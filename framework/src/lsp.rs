@@ -9,12 +9,17 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 struct FileInfo {
     uri: Url,
-    client: Client,
 }
 
 lazy_static! {
     static ref OPEN_FILES: DashMap<String, FileInfo> = DashMap::new();
 }
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+lazy_static! {
+    static ref ALL_CLIENTS: DashMap<usize, Client> = DashMap::new();
+}
+static CLIENT_COUNTER: AtomicUsize = AtomicUsize::new(1);
 
 // --- Actor Definition ---
 
@@ -36,7 +41,11 @@ impl Actor for LspActor {
                 log::info!("LSP client connected");
                 let (read, write) = tokio::io::split(stream);
 
-                let (service, socket) = LspService::new(|client| Backend::new(client));
+                let (service, socket) = LspService::new(|client| {
+                    let id = CLIENT_COUNTER.fetch_add(1, Ordering::SeqCst);
+                    ALL_CLIENTS.insert(id, client.clone());
+                    Backend::new(client, id)
+                });
 
                 tokio::spawn(Server::new(read, write, socket).serve(service));
             }
@@ -53,11 +62,12 @@ impl Actor for LspActor {
 #[derive(Debug)]
 pub struct Backend {
     client: Client,
+    client_id: usize,
 }
 
 impl Backend {
-    pub fn new(client: Client) -> Self {
-        Self { client }
+    pub fn new(client: Client, client_id: usize) -> Self {
+        Self { client, client_id }
     }
 }
 
@@ -95,17 +105,17 @@ async fn listen_for_errors() {
                 ..Diagnostic::default()
             };
 
-            if let Some(file_info) = OPEN_FILES.get(&normalized_path) {
-                file_info.client
-                    .publish_diagnostics(file_info.uri.clone(), vec![diagnostic], None)
-                    .await;
-            } else {
-                log::warn!(
-                    "File not found in global open_files map. Normalized: {}, Original: {}",
-                    normalized_path,
-                    file_path
-                );
-                log::debug!("All open files: {:?}", OPEN_FILES.iter().map(|r| r.key().clone()).collect::<Vec<_>>());
+            match Url::from_file_path(&normalized_path) {
+                Ok(uri) => {
+                    for client in ALL_CLIENTS.iter() {
+                        client
+                            .publish_diagnostics(uri.clone(), vec![diagnostic.clone()], None)
+                            .await;
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to create URI from path {}: {:?}", normalized_path, e);
+                }
             }
         }
     }
@@ -137,6 +147,7 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         log::info!("LSP server shutting down");
+        ALL_CLIENTS.remove(&self.client_id);
         Ok(())
     }
 
@@ -147,7 +158,6 @@ impl LanguageServer for Backend {
                 log::debug!("File opened globally: {} -> {}", file_path.display(), normalized_path);
                 let info = FileInfo {
                     uri,
-                    client: self.client.clone(),
                 };
                 OPEN_FILES.insert(normalized_path, info);
             }

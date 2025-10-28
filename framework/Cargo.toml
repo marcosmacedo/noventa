@@ -47,6 +47,7 @@ tower-lsp = { version = "0.20.0", features = ["proposed"] }
 tokio = { version = "1", features = ["full"] }
 tower = "0.4"
 dashmap = "6.1.0"
+ignore = "0.4.22"
 
 [dev-dependencies]
 tempfile = "3.23.0"

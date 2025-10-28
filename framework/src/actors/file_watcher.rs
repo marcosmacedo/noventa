@@ -1,10 +1,11 @@
 use actix::prelude::*;
 use notify::{RecommendedWatcher, Watcher, RecursiveMode, Result};
+use ignore::gitignore::Gitignore;
 use std::fs;
 use std::path::Path;
 use crate::actors::ws_server::{WsServer, BroadcastReload};
 use crate::actors::router::{RouterActor, ReloadRoutes};
-use crate::actors::template_renderer::{TemplateRendererActor, UpdateSingleComponent};
+use crate::actors::template_renderer::{TemplateRendererActor, UpdateComponents};
 use crate::actors::interpreter::{PythonInterpreterActor, ReloadInterpreter};
 
 pub struct FileWatcherActor {
@@ -52,13 +53,16 @@ impl Actor for FileWatcherActor {
         self.pages_path = pages_path.clone();
         self.layouts_path = layouts_path.clone();
 
+        let (gitignore, _) = ignore::gitignore::Gitignore::new("./.gitignore");
+        let current_dir = std::env::current_dir().unwrap();
+
         // Create the watcher first
         let mut watcher = match notify::recommended_watcher(move |res: Result<notify::Event>| {
             match res {
                 Ok(event) => {
                     if let Some(path) = event.paths.first() {
-                        // Absolutely ignore any path containing __pycache__
-                        if path.to_str().map_or(false, |s| s.contains("__pycache__")) {
+                        let relative_path = path.strip_prefix(&current_dir).unwrap_or(path);
+                        if gitignore.matched(relative_path, false).is_ignore() {
                             return;
                         }
 
@@ -75,13 +79,13 @@ impl Actor for FileWatcherActor {
                         } else if path.starts_with(&layouts_path) {
                             // We don't need to do anything here, but we want to avoid the component scan
                         } else if path.starts_with(&components_path) {
-                            match crate::components::scan_single_component(path, &components_path) {
-                                Ok(component) => {
-                                    log::debug!("Component '{}' has been updated. Refreshing the component now!", component.id);
-                                    template_renderer_addr.do_send(UpdateSingleComponent(component));
+                            log::debug!("A component has changed. Rescanning all components now!");
+                            match crate::components::scan_components(&components_path) {
+                                Ok(components) => {
+                                    template_renderer_addr.do_send(UpdateComponents(components));
                                 }
                                 Err(e) => {
-                                    log::warn!("A file in a component folder changed, but we couldn't scan the component: {}. This can happen if you save a file in a component directory that is not a valid component (e.g., missing a template).", e);
+                                    log::error!("Failed to rescan components: {}", e);
                                 }
                             }
                         }
