@@ -57,7 +57,17 @@ pub struct SessionConfig {
 }
 
 #[derive(Deserialize, Clone, Debug, Default)]
+pub struct CoreAllocation {
+    pub python_threads: Option<usize>,
+    pub template_renderer_threads: Option<usize>,
+    pub actix_web_threads: Option<usize>,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
 pub struct Config {
+    pub server_address: Option<String>,
+    pub port: Option<u32>,
+    pub core_allocation: Option<CoreAllocation>,
     pub max_memory_size: Option<usize>,
     pub temp_dir: Option<String>,
     pub adaptive_shedding: Option<bool>,
@@ -116,6 +126,12 @@ mod tests {
         let mut file = File::create(&config_path).unwrap();
         file.write_all(
             b"
+server_address: 127.0.0.1
+port: 8080
+core_allocation:
+  python_threads: 4
+  template_renderer_threads: 4
+  actix_web_threads: 8
 max_memory_size: 1024
 temp_dir: /tmp
 adaptive_shedding: true
@@ -137,6 +153,12 @@ session:
 
         let config = Config::from_file(config_path.to_str().unwrap()).unwrap();
 
+        assert_eq!(config.server_address, Some("127.0.0.1".to_string()));
+        assert_eq!(config.port, Some(8080 as u32));
+        let core_allocation = config.core_allocation.unwrap();
+        assert_eq!(core_allocation.python_threads, Some(4));
+        assert_eq!(core_allocation.template_renderer_threads, Some(4));
+        assert_eq!(core_allocation.actix_web_threads, Some(8));
         assert_eq!(config.max_memory_size, Some(1024));
         assert_eq!(config.temp_dir, Some("/tmp".to_string()));
         assert_eq!(config.adaptive_shedding, Some(true));

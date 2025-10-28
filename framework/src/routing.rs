@@ -237,12 +237,14 @@ pub async fn handle_page(
     match renderer.send(render_msg).await {
         Ok(Ok(rendered)) => HttpResponse::Ok().body(rendered),
         Ok(Err(mut detailed_error)) => {
+            detailed_error.route = Some(req.path().to_string());
             if dev_mode {
-                detailed_error.route = Some(req.path().to_string());
                 let html = crate::templates::render_structured_debug_error(&detailed_error);
-                return HttpResponse::InternalServerError().content_type("text/html").body(html);
+                HttpResponse::InternalServerError().content_type("text/html").body(html)
+            } else {
+                let html = crate::templates::render_production_error(&detailed_error);
+                HttpResponse::InternalServerError().content_type("text/html").body(html)
             }
-            HttpResponse::InternalServerError().finish()
         }
         Err(e) => {
             log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);

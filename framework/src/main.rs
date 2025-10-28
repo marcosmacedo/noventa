@@ -159,11 +159,18 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     // Allocate cores for CPU-bound sync actors.
     // These run in dedicated thread pools (SyncArbiters).
-    let python_threads = (total_cores / 2).max(1); // Example: 50% of cores for Python, at least 1.
-    let template_renderer_threads = (total_cores / 2).max(1); // Example: 50% of cores for templates, at least 1.
-
-    // Allocate the remaining cores to the Actix web server for handling I/O.
-    let actix_web_threads = (total_cores - python_threads - template_renderer_threads).max(1);
+    let (python_threads, template_renderer_threads, actix_web_threads) =
+        if let Some(core_config) = &config::CONFIG.core_allocation {
+            let python_threads = core_config.python_threads.unwrap_or((total_cores / 2).max(1));
+            let template_renderer_threads = core_config.template_renderer_threads.unwrap_or((total_cores / 2).max(1));
+            let actix_web_threads = core_config.actix_web_threads.unwrap_or((total_cores - python_threads - template_renderer_threads).max(1));
+            (python_threads, template_renderer_threads, actix_web_threads)
+        } else {
+            let python_threads = (total_cores / 2).max(1);
+            let template_renderer_threads = (total_cores / 2).max(1);
+            let actix_web_threads = (total_cores - python_threads - template_renderer_threads).max(1);
+            (python_threads, template_renderer_threads, actix_web_threads)
+        };
 
     log::debug!(
         "Core allocation: Total={}, Actix Web={}, Python={}, Template Renderer={}. Starting up the engines!",
@@ -324,10 +331,21 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     })
     .workers(actix_web_threads) // Set the number of web server worker threads.
     .keep_alive(std::time::Duration::from_secs(30))
-    .bind(("127.0.0.1", 8080))
+    .bind({
+        let port = config::CONFIG.port.unwrap_or(8080);
+        if port > 65535 {
+            println!("Error: Port number {} is too high. It must be between 0 and 65535.", port);
+            std::process::exit(1);
+        }
+        (
+            config::CONFIG.server_address.as_deref().unwrap_or("127.0.0.1"),
+            port as u16,
+        )
+    })
     .map_err(|e| {
         if e.kind() == std::io::ErrorKind::AddrInUse {
-            println!("Error: The port 8080 is already in use.");
+            let port = config::CONFIG.port.unwrap_or(8080) as u16;
+            println!("Error: The port {} is already in use.", port);
             println!("Another application is likely running on this port.");
             println!("Please stop the other application or choose a different port.");
             std::process::exit(1);
@@ -335,7 +353,11 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         e
     })?;
 
-    logger::print_banner("127.0.0.1", 8080, dev_mode);
+    logger::print_banner(
+        config::CONFIG.server_address.as_deref().unwrap_or("127.0.0.1"),
+        config::CONFIG.port.unwrap_or(8080) as u16,
+        dev_mode
+    );
 
     server.run().await
 }
