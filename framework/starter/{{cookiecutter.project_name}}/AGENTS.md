@@ -13,6 +13,7 @@ with designing a beautiful and functional website or web application.
     *   `[component_name]_template.html` (Jinja template)
     *   `[component_name]_logic.py` (server-side logic)
     *   `[component_name]_models.py` (optional SQLAlchemy models to be used in the component)
+    This means that you can not have two `_template.html`, `_logic.py` or `_models.py` in the same component folder
   **Functions:** Place reusable functions that don't belong to components in the `/functions` directory.
 **Component Calling:** Components can be called from a template using {{ component("component_name", [parameter]=[string]) }} where parameters are strings that are passed to **props.
  **Component Entrypoint:** `[component_name]_logic.py` must have one and only one `load_template_context(request, session, db, **props)` function that returns a dictionary for the template on component load (GET request to the page containing the component).
@@ -21,7 +22,7 @@ with designing a beautiful and functional website or web application.
     *   `db`: An active SQLAlchemy session object.
     *   `**props`: A key-value dictionary of parameters passed to the component. Props must be strings.
  **Data Flow:** `_logic.py` executes before the template renders and it passes the template a dictionary. The template can only access data from this dictionary. Context is local to components and not shared across components.
- **Jinja Logic:** Do not use functions or variables in Jinja, only use evaluations and conditional rendering. The only context available is the one returned as a dictionary from the `[component_name]_logic.py` for that component.
+ **Prohibited Jinja Functions:** Do not use functions, filters or variables in Jinja, only use evaluations and conditional rendering. The only context available is the returned dictionary from the `[component_name]_logic.py` for that component.
  **Form Handling:** Forms require a hidden input `<input type="hidden" name="action" value="[your_action_name]">`. The POST data is handled by an `action_[your_action_name](request, session, db, **props)` function in `_logic.py`.
  **Database Models:** Use SQLAlchemy's `DeclarativeBase` to create models. Models should be in a file `[component_name]_models.py` inside each component's folder.
  **Database Seeding:** Create python seed scripts using SQLAlchemy in `./migrations/seed` and run them after migrations.
@@ -31,7 +32,8 @@ with designing a beautiful and functional website or web application.
  **Webserver:** There is a webserver already running to render the pages. You do not need to implement it.
  **Folder structure:** Group related components, layouts, pages, functions in subfolders for better organization
  **Actions and navigation:** Navigation should always be made through <a> links and use POST <form> to do actions to a component in a page.
- **Component Subfolders:** You can namespace components using subfolders like `./components/maincomponent/subcomponent/` which then can be rendered using dot notation namespace like {{ component("maincomponent.subcomponent", [parameter]=[string]) }}
+ **Component Subfolders:** You can namespace components using subfolders like `./components/maincomponent/subcomponent/` which then can be rendered using dot notation namespace like {{ component("maincomponent.subcomponent", [parameter]=[string data type]) }}
+ **Database Usage:** You can use alembic from the current folder as `alembic -c migrations/alembic.ini` it only detects models inside `./components/`
 
 **Planning List:** 
 Your development workflow should follow this pattern:

@@ -240,7 +240,7 @@ pub async fn handle_page(
             detailed_error.route = Some(req.path().to_string());
             if dev_mode {
                 let html = crate::templates::render_structured_debug_error(&detailed_error);
-                HttpResponse::InternalServerError().content_type("text/html").body(html)
+                HttpResponse::Ok().content_type("text/html").body(html)
             } else {
                 let html = crate::templates::render_production_error(&detailed_error);
                 HttpResponse::InternalServerError().content_type("text/html").body(html)

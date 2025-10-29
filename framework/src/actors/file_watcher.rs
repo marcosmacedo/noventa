@@ -45,9 +45,9 @@ impl Actor for FileWatcherActor {
         let template_renderer_addr = self.template_renderer_addr.clone();
         let interpreter_addr = self.interpreter_addr.clone();
 
-        let components_path = std::path::PathBuf::from("./components");
-        let pages_path = fs::canonicalize("./pages").unwrap();
-        let layouts_path = fs::canonicalize("./layouts").unwrap();
+        let components_path = std::path::PathBuf::from("components");
+        let pages_path = std::path::PathBuf::from("pages");
+        let layouts_path = std::path::PathBuf::from("layouts");
 
         self.components_path = components_path.clone();
         self.pages_path = pages_path.clone();
@@ -62,34 +62,46 @@ impl Actor for FileWatcherActor {
                 Ok(event) => {
                     if let Some(path) = event.paths.first() {
                         let relative_path = path.strip_prefix(&current_dir).unwrap_or(path);
+
                         if gitignore.matched(relative_path, false).is_ignore() {
                             return;
                         }
 
-                        log::debug!("Detected a change in: {:?}", path);
+                        log::debug!("Detected a change in: {:?}", relative_path);
 
-                        if path.extension().map_or(false, |ext| ext == "py") {
-                            log::debug!("A Python file has changed. Reloading the interpreter now!");
-                            interpreter_addr.do_send(ReloadInterpreter);
-                        }
+                        let mut futures = Vec::new();
 
-                        if path.starts_with(&pages_path) {
+                        if relative_path.starts_with(&pages_path) {
                             log::debug!("A page has changed. Reloading the routes now!");
-                            router_addr.do_send(ReloadRoutes);
-                        } else if path.starts_with(&layouts_path) {
-                            // We don't need to do anything here, but we want to avoid the component scan
-                        } else if path.starts_with(&components_path) {
+                            let future = router_addr.send(ReloadRoutes);
+                            futures.push(Box::pin(future) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
+                        } else if relative_path.starts_with(&components_path) {
                             log::debug!("A component has changed. Rescanning all components now!");
                             match crate::components::scan_components(&components_path) {
                                 Ok(components) => {
-                                    template_renderer_addr.do_send(UpdateComponents(components));
+                                    let future = template_renderer_addr.send(UpdateComponents(components));
+                                    futures.push(Box::pin(future) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
                                 }
                                 Err(e) => {
                                     log::error!("Failed to rescan components: {}", e);
                                 }
                             }
                         }
+
+                        if relative_path.extension().map_or(false, |ext| ext == "py") {
+                            log::debug!("A Python file has changed. Reloading the interpreter now!");
+                            let future = interpreter_addr.send(ReloadInterpreter);
+                            futures.push(Box::pin(future) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
+                        }
+
+                        // Block until all actor updates are complete
+                        for future in futures {
+                            if let Err(e) = futures::executor::block_on(future) {
+                                log::error!("Error waiting for actor to handle message: {}", e);
+                            }
+                        }
                     }
+                    // Only broadcast reload after all updates are done
                     ws_server_addr.do_send(BroadcastReload);
                 }
                 Err(e) => log::error!("Oh no, a file watch error occurred: {:?}", e),

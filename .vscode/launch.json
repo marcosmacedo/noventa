@@ -18,9 +18,12 @@
       "type": "lldb",
       "request": "launch",
       "program": "${workspaceFolder}/framework/target/debug/noventa",
-      "args": ["serve"],
-      "cwd": "/Users/marcos/Documents/noventatest/test",
-      "preLaunchTask": "cargo build"
+      "args": ["dev"],
+      "cwd": "/Users/marcos/Documents/vibetest/test4/test5/test6/test7/test8",
+      "preLaunchTask": "cargo build",
+      "env": {
+        "DYLD_LIBRARY_PATH": "/Users/marcos/.conda/envs/py310/lib:$DYLD_LIBRARY_PATH"
+      }
     }
   ]
 }
