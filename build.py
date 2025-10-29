@@ -115,7 +115,7 @@ def package_wheel(out_dir, binary_src_or_dir, platform, dll_path=None):
 
         if os.path.exists(out_pkg_dir):
             shutil.rmtree(out_pkg_dir)
-        shutil.copytree(repo_pkg_dir, out_pkg_dir)
+        shutil.copytree(repo_pkg_dir, out_pkg_dir, ignore=shutil.ignore_patterns('starter'))
         print(f"Created working python package for {platform} at {out_pkg_dir}")
 
         target_dir = os.path.join(out_pkg_dir, "src", "noventa")
@@ -147,19 +147,14 @@ def package_wheel(out_dir, binary_src_or_dir, platform, dll_path=None):
 
         starter_src = os.path.join(framework_dir, "starter")
         starter_dest = os.path.join(target_dir, "starter")
-        if os.path.exists(starter_src):
-            if os.path.exists(starter_dest):
-                shutil.rmtree(starter_dest)
-            shutil.copytree(
-                starter_src,
-                starter_dest,
-                ignore=shutil.ignore_patterns('.DS_Store'),
-                copy_function=shutil.copy2,
-                dirs_exist_ok=True
-            )
-            print(f"Copied starter templates into working python package for {platform} at {starter_dest}")
-        else:
-            print(f"No starter directory at {starter_src}; skipping starter copy for {platform}")
+        shutil.copytree(
+            starter_src,
+            starter_dest,
+            ignore=shutil.ignore_patterns('.DS_Store'),
+            copy_function=shutil.copy2,
+            dirs_exist_ok=True
+        )
+        print(f"Copied starter templates into working python package for {platform} at {starter_dest}")
 
         print(f"Building pip wheel for {platform} (trying 'python -m build')...")
         cmd_build = f"{sys.executable} -m build --wheel --outdir {abs_platform_out_dir}"
@@ -201,7 +196,7 @@ def build_rust_framework(out_dir):
     # Build for macOS
     if sys.platform == "darwin":
         print("Building Rust framework for macOS with cargo...")
-        run_command("cargo build --release", cwd=framework_dir)
+        run_command("PYO3_NO_PYTHON=1 cargo build --release", cwd=framework_dir)
         
         macos_out_dir = os.path.join(out_dir, "macos")
         os.makedirs(macos_out_dir, exist_ok=True)
@@ -249,7 +244,7 @@ def build_rust_framework(out_dir):
     
     # Cross-compile for Linux
     print("Cross-compiling Rust framework for Linux with cargo zigbuild...")
-    run_command("cargo zigbuild --target x86_64-unknown-linux-gnu --release", cwd=framework_dir)
+    run_command("PYO3_NO_PYTHON=1 cargo zigbuild --target x86_64-unknown-linux-gnu --release", cwd=framework_dir)
     
     linux_out_dir = os.path.join(out_dir, "linux")
     os.makedirs(linux_out_dir, exist_ok=True)
@@ -265,7 +260,7 @@ def build_rust_framework(out_dir):
 
     # Cross-compile for Windows
     print("Cross-compiling Rust framework for Windows with cargo xwin...")
-    run_command("cargo xwin build --target x86_64-pc-windows-msvc --release", cwd=framework_dir)
+    run_command("PYO3_NO_PYTHON=1 cargo xwin build --target x86_64-pc-windows-msvc --release", cwd=framework_dir)
 
     windows_out_dir = os.path.join(out_dir, "windows")
     os.makedirs(windows_out_dir, exist_ok=True)

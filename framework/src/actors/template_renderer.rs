@@ -165,6 +165,7 @@ impl TemplateRendererActor {
         env.add_function(
             "component",
             move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
+                let name = name.replace(".", "/");
                 let kwargs_map: HashMap<String, Value> = kwargs
                     .args()
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
@@ -306,6 +307,7 @@ impl TemplateRendererActor {
             // Manual parsing of arguments from the template string.
             let mut parts = args_str.split(',');
             let name = parts.next().unwrap_or("").trim().replace("'", "").replace("\"", "");
+            let name = name.replace(".", "/");
             let mut kwargs_map = HashMap::new();
             for part in parts {
                 let mut kv = part.splitn(2, '=');
@@ -395,6 +397,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         env.add_function(
             "component",
             move |state: &State, name: String, kwargs: Kwargs| -> Result<Value, minijinja::Error> {
+                let name = name.replace(".", "/");
                 let kwargs_map: HashMap<String, Value> = kwargs
                     .args()
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))

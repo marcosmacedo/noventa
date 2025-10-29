@@ -275,7 +275,16 @@ pub async fn dynamic_route_handler(
             let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
             handle_page(req, payload, renderer, session, template_path, path_params, dev_mode).await
         }
-        Ok(None) => HttpResponse::NotFound().finish(),
+        Ok(None) => {
+            let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
+            if dev_mode && req.path() == "/" {
+                // In dev mode, if no / page is found, show a welcome page
+                const DEV_MODE_INDEX: &str = include_str!("templates/dev_mode_index.html");
+                HttpResponse::Ok().content_type("text/html").body(DEV_MODE_INDEX)
+            } else {
+                HttpResponse::NotFound().finish()
+            }
+        }
         Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
