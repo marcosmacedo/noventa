@@ -4,6 +4,7 @@ setup(
     install_requires=[
         "cookiecutter==2.6.0",
         "SQLAlchemy==2.0.44",
-        "alembic==1.17.0"
+        "alembic==1.17.0",
+        "werkzeug==3.1.3",
     ],
 )

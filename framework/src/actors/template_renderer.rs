@@ -7,7 +7,7 @@ use crate::errors::{ComponentInfo, DetailedError, ErrorSource};
 use actix::prelude::*;
 use std::error::Error;
 use minijinja::{Environment, State, value::Kwargs, Value};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::collections::HashMap;
 use regex::Regex;
 use once_cell::sync::Lazy;
@@ -21,7 +21,7 @@ pub struct TemplateRendererActor {
     interpreter: Addr<PythonInterpreterActor>,
     health_actor: Addr<HealthActor>,
     dev_mode: bool,
-    components: Vec<Component>,
+    components: Arc<RwLock<Vec<Component>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +45,7 @@ impl TemplateRendererActor {
             interpreter,
             health_actor,
             dev_mode,
-            components,
+            components: Arc::new(RwLock::new(components)),
         }
     }
 
@@ -97,7 +97,8 @@ impl TemplateRendererActor {
                 let mut kwargs_map_post = action_component_call.kwargs.clone();
                 kwargs_map_post.extend(form_data_value);
 
-                let component = self.components.iter().find(|c| c.id == action_component_call.name).unwrap();
+                let components = self.components.read().unwrap();
+                let component = components.iter().find(|c| c.id == action_component_call.name).unwrap();
                 let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
 
                 let execute_fn_msg = ExecuteFunction {
@@ -158,7 +159,7 @@ impl TemplateRendererActor {
         let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
         let session_manager_clone = msg.session_manager.clone();
-        let components_clone = self.components.clone();
+        let components_clone = Arc::clone(&self.components);
         let action_context = Arc::new(action_context);
         let form_component_id = form_component_id.clone();
 
@@ -171,7 +172,8 @@ impl TemplateRendererActor {
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let component = components_clone.iter().find(|c| c.id == name).unwrap();
+                let components = components_clone.read().unwrap();
+                let component = components.iter().find(|c| c.id == name).unwrap();
                 let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
 
                 let execute_fn_msg = ExecuteFunction {
@@ -242,7 +244,8 @@ impl TemplateRendererActor {
                             }
                         }
 
-                        let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                        let components = components_clone.read().unwrap();
+                        let component = components.iter().find(|c| c.id == name).ok_or_else(|| {
                             minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                         })?;
                         let mut template_path = component.template_path.clone();
@@ -321,7 +324,8 @@ impl TemplateRendererActor {
                 }
             }
 
-            let component = self.components.iter().find(|c| c.id == name).ok_or_else(|| {
+            let components = self.components.read().unwrap();
+            let component = components.iter().find(|c| c.id == name).ok_or_else(|| {
                 minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
             })?;
 
@@ -392,7 +396,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
         let health_actor_clone = self.health_actor.clone();
         let request_info_clone = msg.request_info.clone();
         let session_manager_clone = msg.session_manager.clone();
-        let components_clone = self.components.clone();
+        let components_clone = Arc::clone(&self.components);
 
         env.add_function(
             "component",
@@ -403,7 +407,8 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                     .filter_map(|k| kwargs.get::<Value>(k).ok().map(|v| (k.to_string(), v)))
                     .collect();
 
-                let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                let components = components_clone.read().unwrap();
+                let component = components.iter().find(|c| c.id == name).ok_or_else(|| {
                     minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                 })?;
                 let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
@@ -424,7 +429,8 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
 
                 match result {
                     Ok(Ok(result)) => {
-                        let component = components_clone.iter().find(|c| c.id == name).ok_or_else(|| {
+                        let components = components_clone.read().unwrap();
+                        let component = components.iter().find(|c| c.id == name).ok_or_else(|| {
                             minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                         })?;
                         let mut template_path = component.template_path.clone();
@@ -505,7 +511,8 @@ impl Handler<UpdateComponents> for TemplateRendererActor {
     type Result = ();
 
     fn handle(&mut self, msg: UpdateComponents, _ctx: &mut Self::Context) -> Self::Result {
-        self.components = msg.0;
+        let mut components = self.components.write().unwrap();
+        *components = msg.0;
     }
 }
 
