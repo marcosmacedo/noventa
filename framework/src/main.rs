@@ -208,13 +208,12 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
     let load_shedding_actor =
         LoadSheddingActor::new(page_renderer_addr.clone(), health_actor_addr.clone()).start();
 
-    let renderer_data: web::Data<Recipient<RenderMessage>>;
-    if config::CONFIG.adaptive_shedding.unwrap_or(true) {
+    let renderer_data: web::Data<Recipient<RenderMessage>> = if config::CONFIG.adaptive_shedding.unwrap_or(true) {
         log::debug!("Adaptive load shedding is enabled. The server will automatically adjust to traffic spikes.");
-        renderer_data = web::Data::new(load_shedding_actor.recipient());
+        web::Data::new(load_shedding_actor.recipient())
     } else {
         log::debug!("Adaptive load shedding is disabled. The server will handle all requests without throttling.");
-        renderer_data = web::Data::new(page_renderer_addr.recipient());
+        web::Data::new(page_renderer_addr.recipient())
     };
 
     let router_addr = if dev_mode {

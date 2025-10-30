@@ -23,7 +23,15 @@ let showLoadingBarTimeout;
 let loadingBarVisible = false;
 
 function handleRequest(url, options, isPopState = false) {
-    if (options && options.headers && options.headers['X-Dev-Reload']) {
+    const fetchOptions = {
+        ...options,
+        headers: {
+            ...options?.headers,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    };
+
+    if (fetchOptions.headers['X-Dev-Reload']) {
         console.log("[frontend.js] Ignoring dev reload request.");
         return;
     }
@@ -42,9 +50,32 @@ function handleRequest(url, options, isPopState = false) {
         }, 300);
     }
 
-    fetch(url, options)
-        .then(response => response.text())
+    fetch(url, fetchOptions)
+        .then(response => {
+            if (response.headers.has('X-Noventa-Redirect')) {
+                const redirectHeader = response.headers.get('X-Noventa-Redirect');
+                console.log('[frontend.js] Redirect header received:', redirectHeader);
+                const redirectUrl = new URL(redirectHeader, window.location.origin);
+                console.log('[frontend.js] Parsed redirect URL object:', redirectUrl);
+
+                if (redirectUrl.origin === window.location.origin) {
+                    // The server has told us to redirect. We will initiate a new request
+                    // for the new URL. This new request will be responsible for updating
+                    // the browser history when it completes successfully.
+                    console.log('[frontend.js] Initiating client-side redirect to:', redirectUrl.href);
+                    handleRequest(redirectUrl.href, { method: 'GET' }, false);
+                } else {
+                    // For external redirects, we do a full page load.
+                    window.location.href = redirectUrl.href;
+                }
+                return null; // Stop processing the current response.
+            }
+            return response.text();
+        })
         .then(html => {
+            if (html === null) {
+                return; // Stop processing if a redirect was handled
+            }
             clearTimeout(showLoadingBarTimeout);
             if (loadingBar && loadingBarVisible) {
                 loadingBar.style.width = '100%';

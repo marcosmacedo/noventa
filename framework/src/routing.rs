@@ -1,5 +1,5 @@
 use crate::actors::health::{GetSystemHealth, HealthActor};
-use crate::actors::page_renderer::{HttpRequestInfo, RenderMessage};
+use crate::actors::page_renderer::{HttpRequestInfo, RenderMessage, RenderOutput};
 use crate::actors::router::{MatchRoute, RouterActor};
 use crate::actors::session_manager::SessionManagerActor;
 use actix::{Actor, Addr, Recipient};
@@ -279,7 +279,22 @@ pub async fn handle_page(
     };
 
     match renderer.send(render_msg).await {
-        Ok(Ok(rendered)) => HttpResponse::Ok().body(rendered),
+        Ok(Ok(render_output)) => match render_output {
+            RenderOutput::Html(html) => HttpResponse::Ok().content_type("text/html").body(html),
+            RenderOutput::Redirect(url) => {
+                if req.headers().contains_key("X-Requested-With") {
+                    // It's an XHR request, send 200 OK with a custom header
+                    HttpResponse::Ok()
+                        .append_header(("X-Noventa-Redirect", url))
+                        .finish()
+                } else {
+                    // It's a regular request, send a 303 redirect
+                    HttpResponse::SeeOther()
+                        .append_header(("Location", url))
+                        .finish()
+                }
+            }
+        },
         Ok(Err(mut detailed_error)) => {
             detailed_error.route = Some(req.path().to_string());
             if dev_mode {

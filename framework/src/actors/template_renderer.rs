@@ -1,6 +1,6 @@
 use crate::actors::health::{HealthActor, ReportTemplateLatency, ReportPythonLatency};
 use crate::actors::interpreter::{ExecuteFunction, PythonInterpreterActor};
-use crate::actors::page_renderer::HttpRequestInfo;
+use crate::actors::page_renderer::{HttpRequestInfo, RenderOutput};
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
 use crate::errors::{ComponentInfo, DetailedError, ErrorSource};
@@ -49,7 +49,7 @@ impl TemplateRendererActor {
         }
     }
 
-    fn handle_post_request(&mut self, msg: RenderTemplate) -> Result<String, DetailedError> {
+    fn handle_post_request(&mut self, msg: RenderTemplate) -> Result<RenderOutput, DetailedError> {
         // Phase 1: Scan - Recursively find all `component()` calls in the templates
         // to build a complete blueprint of the page's component tree.
         let mut component_calls = Vec::new();
@@ -113,6 +113,13 @@ impl TemplateRendererActor {
                     let result = futures::executor::block_on(self.interpreter.send(execute_fn_msg));
                     match result {
                         Ok(Ok(result)) => {
+                            if let Ok(redirect_url) = result.context.get_attr("_redirect") {
+                                if !redirect_url.is_undefined() && !redirect_url.is_none() {
+                                    if let Some(url_str) = redirect_url.as_str() {
+                                        return Ok(RenderOutput::Redirect(url_str.to_string()));
+                                    }
+                                }
+                            }
                             action_context = Some(result.context);
                         }
                         Ok(Err(py_err)) => {
@@ -274,7 +281,7 @@ impl TemplateRendererActor {
             },
         );
 
-        self.render_page(&env, &msg.template_name).map_err(|e| {
+        let rendered_page = self.render_page(&env, &msg.template_name).map_err(|e| {
             if let Some(detailed_error) = e.source().and_then(|s| s.downcast_ref::<DetailedError>()) {
                 return detailed_error.clone();
             }
@@ -306,7 +313,8 @@ impl TemplateRendererActor {
                 line: template_info.line as u32,
                 ..Default::default()
             }
-        })
+        })?;
+        Ok(RenderOutput::Html(rendered_page))
     }
 
     // Recursively scans template files to find all `{{ component(...) }}` calls.
@@ -375,7 +383,7 @@ impl Actor for TemplateRendererActor {
 
 // Message for rendering a template
 #[derive(Message)]
-#[rtype(result = "Result<String, DetailedError>")]
+#[rtype(result = "Result<RenderOutput, DetailedError>")]
 pub struct RenderTemplate {
     pub template_name: String,
     pub request_info: Arc<HttpRequestInfo>,
@@ -388,7 +396,7 @@ pub struct UpdateComponents(pub Vec<Component>);
 
 
 impl Handler<RenderTemplate> for TemplateRendererActor {
-    type Result = Result<String, DetailedError>;
+    type Result = Result<RenderOutput, DetailedError>;
 
     fn handle(&mut self, msg: RenderTemplate, _ctx: &mut Self::Context) -> Self::Result {
         if msg.request_info.method == "POST" {
@@ -437,6 +445,14 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
 
                     match result {
                         Ok(Ok(result)) => {
+                            if let Ok(redirect_url) = result.context.get_attr("_redirect") {
+                                if !redirect_url.is_undefined() && !redirect_url.is_none() {
+                                    if let Some(url_str) = redirect_url.as_str() {
+                                        let redirect_marker = format!("<!-- REDIRECT:{} -->", url_str);
+                                        return Ok(Value::from_safe_string(redirect_marker));
+                                    }
+                                }
+                            }
                             let components = components_clone.read().unwrap();
                             let component =
                                 components.iter().find(|c| c.id == name).ok_or_else(|| {
@@ -520,7 +536,7 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             },
         );
 
-        self.render_page(&env, &msg.template_name).map_err(|e| {
+        let rendered_page = self.render_page(&env, &msg.template_name).map_err(|e| {
             if let Some(detailed_error) = e.source().and_then(|s| s.downcast_ref::<DetailedError>()) {
                 return detailed_error.clone();
             }
@@ -552,7 +568,17 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 line: template_info.line as u32,
                 ..Default::default()
             }
-        })
+        })?;
+
+        if rendered_page.contains("<!-- REDIRECT:") {
+            if let Some(caps) = Regex::new(r"<!-- REDIRECT:(.*?) -->").unwrap().captures(&rendered_page) {
+                if let Some(url) = caps.get(1) {
+                    return Ok(RenderOutput::Redirect(url.as_str().to_string()));
+                }
+            }
+        }
+
+        Ok(RenderOutput::Html(rendered_page))
     }
 }
 
