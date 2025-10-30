@@ -15,10 +15,10 @@
         </div>
 
         <div class="w-full max-w-4xl mx-auto">
-            <div class="bg-gray-900 bg-opacity-50 rounded-lg shadow-lg border border-purple-500/30">
-                <div class="content p-4 sm:p-6">
-                    <div class="trace-item bg-gray-800 bg-opacity-50 border border-gray-700 rounded-lg mb-6">
-                        <div class="trace-header bg-gray-700 bg-opacity-50 p-3 sm:p-4 border-b border-gray-600 font-semibold text-lg text-cyan-400">Error Details</div>
+            <div class="bg-gray-900 bg-opacity-90 rounded-lg shadow-lg border border-purple-500/30">
+                <div id="main_container" class="content p-4 sm:p-6">
+                    <div class="trace-item bg-gray-800 bg-opacity-90 border border-gray-700 rounded-lg mb-6">
+                        <div class="trace-header bg-gray-700 bg-opacity-90 p-3 sm:p-4 border-b border-gray-600 font-semibold text-lg text-cyan-400">Error Details</div>
                         <div class="trace-body p-3 sm:p-4 text-gray-300">
                             {% if error.route %}
                                 <p><strong class="text-cyan-300">Page:</strong> {{ error.route }}</p>
@@ -32,19 +32,19 @@
                         </div>
                     </div>
                     {% if error.error_source %}
-                    <div class="trace-item bg-gray-800 bg-opacity-50 border border-gray-700 rounded-lg">
+                    <div class="trace-item bg-gray-800 bg-opacity-90 border border-gray-700 rounded-lg">
                         {% if error.error_source.Template %}
-                        <div class="trace-header bg-gray-700 bg-opacity-50 p-3 sm:p-4 border-b border-gray-600 font-semibold text-lg text-purple-400">Template Error</div>
+                        <div class="trace-header bg-gray-700 bg-opacity-90 p-3 sm:p-4 border-b border-gray-600 font-semibold text-lg text-purple-400">Template Error</div>
                         <div class="trace-body p-3 sm:p-4">
-                            <p class="text-gray-300 mb-4">{{ error.error_source.Template.detail }}</p>
+                            <p class="text-gray-300 bg-gray-900 mb-4">{{ error.error_source.Template.detail }}</p>
                             <div class="trace-location text-sm text-gray-400 mb-4">
                                 In <strong class="text-purple-300">{{ error.error_source.Template.name }}</strong> at line <strong class="text-purple-300">{{ error.error_source.Template.line }}</strong>
                             </div>
                             {% if code_snippet %}
-                            <div class="code-snippet bg-gray-900 border border-gray-600 p-4 rounded-md font-mono text-sm overflow-x-auto">
+                            <div class="text-gray-300">
                                 {% for line in code_snippet %}
                                     <div class="line flex {% if line.highlight %} bg-purple-900 bg-opacity-30 text-purple-200 {% endif %}">
-                                        <span class="line-number w-10 text-right pr-4 text-gray-500">{{ line.number }}</span>
+                                        <span class="line-number w-10 text-right pr-4">{{ line.number }}</span>
                                         <pre class="whitespace-pre-wrap">{{ line.content }}</pre>
                                     </div>
                                 {% endfor %}
@@ -52,17 +52,17 @@
                             {% endif %}
                         </div>
                         {% elif error.error_source.Python %}
-                        <div class="trace-header bg-gray-700 bg-opacity-50 p-3 sm:p-4 border-b border-gray-600 font-semibold text-lg text-purple-400">Python Error</div>
+                        <div class="trace-header bg-gray-700 bg-opacity-90 p-3 sm:p-4 border-b border-gray-600 font-semibold text-lg text-purple-400">Python Error</div>
                         <div class="trace-body p-3 sm:p-4">
                             <p class="text-gray-300 mb-4">{{ error.error_source.Python.message }}</p>
                             <div class="trace-location text-sm text-gray-400 mb-4">
                                 In <strong class="text-purple-300">{% if error.error_source.Python.filename %}{{ error.error_source.Python.filename }}{% else %}Unknown{% endif %}</strong> at line <strong class="text-purple-300">{% if error.error_source.Python.line_number %}{{ error.error_source.Python.line_number }}{% else %}0{% endif %}</strong>
                             </div>
                             {% if code_snippet %}
-                            <div class="code-snippet bg-gray-900 border border-gray-600 p-4 rounded-md font-mono text-sm overflow-x-auto mb-4">
+                            <div class="text-gray-300 bg-gray-900 mb-4">
                                 {% for line in code_snippet %}
                                     <div class="line flex {% if line.highlight %} bg-purple-900 bg-opacity-30 text-purple-200 {% endif %}">
-                                        <span class="line-number w-10 text-right pr-4 text-gray-500">{{ line.number }}</span>
+                                        <span class="line-number w-10 text-right pr-4">{{ line.number }}</span>
                                         <pre class="whitespace-pre-wrap">{{ line.content }}</pre>
                                     </div>
                                 {% endfor %}

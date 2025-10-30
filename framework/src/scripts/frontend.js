@@ -23,6 +23,11 @@ let showLoadingBarTimeout;
 let loadingBarVisible = false;
 
 function handleRequest(url, options, isPopState = false) {
+    if (options && options.headers && options.headers['X-Dev-Reload']) {
+        console.log("[frontend.js] Ignoring dev reload request.");
+        return;
+    }
+    console.log("[frontend.js] Handling request.");
     const loadingBar = document.getElementById('xhr-loading-bar');
 
     if (loadingBar) {
