@@ -131,7 +131,7 @@ impl LanguageServer for Backend {
                 text_document_sync: Some(TextDocumentSyncCapability::Options(
                     TextDocumentSyncOptions {
                         open_close: Some(true),
-                        change: Some(TextDocumentSyncKind::FULL),
+                        change: Some(TextDocumentSyncKind::INCREMENTAL),
                         will_save: Some(false),
                         will_save_wait_until: Some(false),
                         save: Some(TextDocumentSyncSaveOptions::Supported(true)),
@@ -162,6 +162,16 @@ impl LanguageServer for Backend {
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        if FILES_WITH_DIAGNOSTICS.contains_key(&uri) {
+            for client in ALL_CLIENTS.iter() {
+                client.publish_diagnostics(uri.clone(), vec![], None).await;
+            }
+            FILES_WITH_DIAGNOSTICS.remove(&uri);
+        }
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri;
         if FILES_WITH_DIAGNOSTICS.contains_key(&uri) {
             for client in ALL_CLIENTS.iter() {

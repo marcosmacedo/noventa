@@ -76,13 +76,18 @@ async fn main() -> std::io::Result<()> {
         Some(Commands::Serve) => (false, Some(Commands::Serve)),
         Some(Commands::Disco) => (false, Some(Commands::Disco)),
         Some(Commands::New { no_input }) => (false, Some(Commands::New { no_input })),
-        None => (true, None), // Default to dev mode
+        None => (false, None),
     };
 
     let command_to_run = command.as_ref().or(cli.command.as_ref());
 
     match command_to_run {
-        Some(Commands::Dev) | None => run_dev_server(dev_mode).await,
+        Some(Commands::Dev) => run_dev_server(dev_mode).await,
+        None => {
+            use clap::CommandFactory;
+            Cli::command().print_help()?;
+            Ok(())
+        }
         Some(Commands::Serve) => run_dev_server(dev_mode).await,
         Some(Commands::Disco) => disco::server::run_disco_server().await,
         Some(Commands::New { no_input }) => create_new_project(cli.starter.as_deref(), *no_input),
