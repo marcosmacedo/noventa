@@ -1,5 +1,6 @@
 pub mod scripts;
 use actix::prelude::*;
+use actix_session::Session;
 use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}};
 use actix_session::config::PersistentSession;
 use actix_session::{
@@ -216,7 +217,11 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         renderer_data = web::Data::new(page_renderer_addr.recipient());
     };
 
-    let router_addr = RouterActor::new().start();
+    let router_addr = if dev_mode {
+        Some(RouterActor::new().start())
+    } else {
+        None
+    };
 
     let mut ws_server: Option<Addr<WsServer>> = None;
     let mut _watcher: Option<Addr<FileWatcherActor>> = None;
@@ -224,7 +229,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
 
     if dev_mode {
         let server = WsServer::new().start();
-        _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.clone(), template_renderer_addr.clone(), interpreters_addr.clone()).start());
+        _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.as_ref().unwrap().clone(), template_renderer_addr.clone(), interpreters_addr.clone()).start());
         ws_server = Some(server);
 
         _lsp_actor = Some(lsp::LspActor.start());
@@ -279,13 +284,45 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
             .wrap(actix_web::middleware::Compress::default())
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
-            .app_data(web::Data::new(router_addr.clone()))
             .app_data(web::Data::new(dev_mode))
             .route("/health", web::get().to(routing::health_check));
 
         if dev_mode {
-            app = app.app_data(web::Data::new(ws_server.as_ref().unwrap().clone()))
-                     .route("/devws", web::get().to(dev_ws));
+            app = app
+                .app_data(web::Data::new(router_addr.as_ref().unwrap().clone()))
+                .app_data(web::Data::new(ws_server.as_ref().unwrap().clone()))
+                .route("/devws", web::get().to(dev_ws))
+                .default_service(web::route().to(routing::dynamic_route_handler));
+        } else {
+            let pages_dir = Path::new("./pages");
+            let routes = routing::get_compiled_routes(pages_dir);
+            for route in routes {
+                let template_path = route.template_path.to_str().unwrap().to_string();
+                let route_pattern = route.regex.to_string().trim_start_matches('^').trim_end_matches('$').to_string();
+                app = app.route(
+                    &route_pattern,
+                    web::get().to(
+                        move |req: HttpRequest,
+                              payload: web::Payload,
+                              renderer: web::Data<Recipient<RenderMessage>>,
+                              session: Session,
+                              path_params: web::Path<std::collections::HashMap<String, String>>| {
+                            let template_path_clone = template_path.clone();
+                            async move {
+                                routing::handle_page_native(
+                                    req,
+                                    payload,
+                                    renderer,
+                                    session,
+                                    path_params,
+                                    web::Data::new(template_path_clone),
+                                )
+                                .await
+                            }
+                        },
+                    ),
+                );
+            }
         }
 
         if let Some(static_path_str) = &config::CONFIG.static_path {
@@ -296,8 +333,6 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
                 .unwrap_or("/static");
             app = app.service(Files::new(url_prefix, static_path));
         }
-
-        app = app.default_service(web::route().to(routing::dynamic_route_handler));
 
         // Always wrap with the session middleware using the runtime-configured store.
         app.wrap(
