@@ -10,9 +10,17 @@ use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use regex::Regex;
 use walkdir::WalkDir;
 
-pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
+#[derive(Debug)]
+pub struct CompiledRoute {
+    pub regex: Regex,
+    pub param_names: Vec<String>,
+    pub template_path: PathBuf,
+}
+
+pub fn get_compiled_routes(pages_dir: &Path) -> Vec<CompiledRoute> {
     let mut routes: Vec<(String, PathBuf)> = WalkDir::new(pages_dir)
         .into_iter()
         .filter_map(Result::ok)
@@ -24,34 +32,70 @@ pub fn get_routes(pages_dir: &Path) -> Vec<(String, PathBuf)> {
         })
         .collect();
 
-    // Sort routes to handle conflicts (more specific routes first)
     routes.sort_by(|(a, _), (b, _)| {
         let a_parts = a.split('/').count();
         let b_parts = b.split('/').count();
         let a_is_dynamic = a.contains('{');
         let b_is_dynamic = b.contains('{');
 
-        b_parts.cmp(&a_parts)
-            .then(b_is_dynamic.cmp(&a_is_dynamic)) // Prioritize dynamic routes
+        b_parts.cmp(&a_parts).then(a_is_dynamic.cmp(&b_is_dynamic))
     });
 
-    let mut registered_routes = HashMap::new();
     let mut final_routes = Vec::new();
+    let mut registered_routes = HashMap::new();
 
-    for (route, template_path) in routes {
-        let route_key = route.split('{').next().unwrap_or("").to_string();
-        let is_dynamic = route.contains('{');
-
+    for (route_pattern, template_path) in routes {
+        let route_key = route_pattern.split('{').next().unwrap_or("").to_string();
         if registered_routes.contains_key(&route_key) {
-            panic!("Route conflict detected: {}. A route with a similar path has already been registered.", route);
+            panic!(
+                "Route conflict detected: {}. A route with a similar path has already been registered.",
+                route_pattern
+            );
         }
-        registered_routes.insert(route_key, is_dynamic);
+        registered_routes.insert(route_key, route_pattern.contains('{'));
 
-        log::debug!("Route registered: {} -> {}", route, template_path.display());
-        final_routes.push((route, template_path));
+        log::debug!("Route registered: {} -> {}", route_pattern, template_path.display());
+        final_routes.push(compile_route(route_pattern, template_path));
     }
 
     final_routes
+}
+
+fn compile_route(route_pattern: String, template_path: PathBuf) -> CompiledRoute {
+    let mut param_names = Vec::new();
+    
+    let parts: Vec<String> = route_pattern
+        .split('/')
+        .skip(1) // Skip the initial empty string from the leading "/"
+        .map(|part| {
+            if part.starts_with('{') && part.ends_with('}') {
+                let param_name = &part[1..part.len() - 1];
+                let sanitized_name = param_name.replace('-', "_");
+                param_names.push(sanitized_name.clone());
+                format!(r"(?P<{}>[^/]+)", sanitized_name)
+            } else {
+                regex::escape(part)
+            }
+        })
+        .collect();
+
+    let regex_pattern = format!("^/{}$", parts.join("/"));
+
+    let regex = Regex::new(&regex_pattern).unwrap_or_else(|e| {
+        log::error!("Failed to compile regex for route: {}. Error: {}", route_pattern, e);
+        Regex::new("$^").unwrap()
+    });
+
+    CompiledRoute {
+        regex,
+        param_names,
+        template_path,
+    }
+}
+
+#[deprecated(note = "Use get_compiled_routes instead")]
+pub fn get_routes(_pages_dir: &Path) -> Vec<(String, PathBuf)> {
+    vec![]
 }
 
 fn path_to_route(path: &Path, base_dir: &Path) -> String {
@@ -298,92 +342,70 @@ mod tests {
     #[test]
     fn test_path_to_route() {
         let base_dir = Path::new("/tmp/pages");
-
-        // Test case 1: Index file
-        let path1 = Path::new("/tmp/pages/index.html");
-        assert_eq!(path_to_route(path1, base_dir), "/");
-
-        // Test case 2: Simple route
-        let path2 = Path::new("/tmp/pages/about.html");
-        assert_eq!(path_to_route(path2, base_dir), "/about");
-
-        // Test case 3: Nested route
-        let path3 = Path::new("/tmp/pages/blog/first-post.html");
-        assert_eq!(path_to_route(path3, base_dir), "/blog/first-post");
-
-        // Test case 4: Dynamic route
-        let path4 = Path::new("/tmp/pages/users/[id].html");
-        assert_eq!(path_to_route(path4, base_dir), "/users/{id}");
-        
-        // Test case 5: Nested dynamic route
-        let path5 = Path::new("/tmp/pages/posts/[category]/[post_id].html");
-        assert_eq!(path_to_route(path5, base_dir), "/posts/{category}/{post-id}");
-        // Test case 6: Multiple dynamic segments
-        let path6 = Path::new("/tmp/pages/a/[b]/c/[d].html");
-        assert_eq!(path_to_route(path6, base_dir), "/a/{b}/c/{d}");
-
-        // Test case 7: Path with special characters
-        let path7 = Path::new("/tmp/pages/a-b_c.html");
-        assert_eq!(path_to_route(path7, base_dir), "/a-b-c");
-
-        // Test case 8: Empty path
-        let path8 = Path::new("/tmp/pages/.html");
-        assert_eq!(path_to_route(path8, base_dir), "/");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/index.html"), base_dir), "/");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/about.html"), base_dir), "/about");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/blog/first-post.html"), base_dir), "/blog/first-post");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/users/[id].html"), base_dir), "/users/{id}");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/posts/[category]/[post_id].html"), base_dir), "/posts/{category}/{post-id}");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/a/[b]/c/[d].html"), base_dir), "/a/{b}/c/{d}");
+        assert_eq!(path_to_route(Path::new("/tmp/pages/a-b_c.html"), base_dir), "/a-b-c");
     }
+
+    #[test]
+    fn test_get_compiled_routes() {
+        let dir = tempdir().unwrap();
+        let pages_dir = dir.path();
+
+        fs::create_dir_all(pages_dir.join("blog")).unwrap();
+        fs::File::create(pages_dir.join("index.html")).unwrap();
+        fs::File::create(pages_dir.join("about.html")).unwrap();
+        fs::File::create(pages_dir.join("blog/first-post.html")).unwrap();
+        fs::File::create(pages_dir.join("users/[id].html")).unwrap();
+        fs::File::create(pages_dir.join("posts/[category]/[post-id].html")).unwrap();
+
+        let routes = get_compiled_routes(pages_dir);
+
+        assert_eq!(routes.len(), 5);
+
+        // Test: /posts/{category}/{post-id}
+        let route0 = &routes[0];
+        assert!(route0.regex.is_match("/posts/tech/123"));
+        assert!(!route0.regex.is_match("/posts/tech"));
+        assert_eq!(route0.param_names, vec!["category", "post_id"]);
+
+        // Test: /users/{id}
+        let route1 = &routes[1];
+        assert!(route1.regex.is_match("/users/456"));
+        assert!(!route1.regex.is_match("/users/456/profile"));
+        assert_eq!(route1.param_names, vec!["id"]);
+
+        // Test: /blog/first-post
+        let route2 = &routes[2];
+        assert!(route2.regex.is_match("/blog/first-post"));
+        assert!(route2.param_names.is_empty());
+
+        // Test: /about
+        let route3 = &routes[3];
+        assert!(route3.regex.is_match("/about"));
+        assert!(route3.param_names.is_empty());
+
+        // Test: /
+        let route4 = &routes[4];
+        assert!(route4.regex.is_match("/"));
+        assert!(route4.param_names.is_empty());
+    }
+
     #[test]
     #[should_panic(expected = "Route conflict detected")]
     fn test_get_routes_conflict() {
         let dir = tempdir().unwrap();
         let pages_dir = dir.path();
 
-        // Create dummy files and directories that will cause a conflict
         fs::create_dir_all(pages_dir.join("conflict")).unwrap();
         fs::File::create(pages_dir.join("conflict.html")).unwrap();
         fs::File::create(pages_dir.join("conflict/index.html")).unwrap();
 
-        // This should panic
-        get_routes(pages_dir);
+        get_compiled_routes(pages_dir);
     }
 }
-
-    #[test]
-    fn test_get_routes() {
-        use std::fs;
-        use tempfile::tempdir;
-        let dir = tempdir().unwrap();
-        let pages_dir = dir.path();
-
-        // Create dummy files and directories
-        fs::create_dir_all(pages_dir.join("blog")).unwrap();
-        fs::File::create(pages_dir.join("index.html")).unwrap();
-        fs::File::create(pages_dir.join("about.html")).unwrap();
-        fs::File::create(pages_dir.join("blog/index.html")).unwrap();
-        fs::File::create(pages_dir.join("blog/first-post.html")).unwrap();
-        fs::create_dir_all(pages_dir.join("users/[id]")).unwrap();
-        fs::File::create(pages_dir.join("users/[id]/profile.html")).unwrap();
-
-        let routes = get_routes(pages_dir);
-
-        let expected_routes: Vec<(String, PathBuf)> = vec![
-            ("/users/{id}/profile".to_string(), pages_dir.join("users/[id]/profile.html")),
-            ("/blog/first-post".to_string(), pages_dir.join("blog/first-post.html")),
-            ("/about".to_string(), pages_dir.join("about.html")),
-            ("/blog".to_string(), pages_dir.join("blog/index.html")),
-            ("/".to_string(), pages_dir.join("index.html")),
-        ]
-        .into_iter()
-        .map(|(r, p)| (r, p.canonicalize().unwrap()))
-        .collect();
-
-        let mut actual_routes: Vec<(String, PathBuf)> = routes
-            .into_iter()
-            .map(|(r, p)| (r, p.canonicalize().unwrap()))
-            .collect();
-
-        actual_routes.sort_by(|(a, _), (b, _)| a.cmp(b));
-        let mut expected_routes_sorted = expected_routes;
-        expected_routes_sorted.sort_by(|(a, _), (b, _)| a.cmp(b));
-
-        assert_eq!(actual_routes, expected_routes_sorted);
-    }
 

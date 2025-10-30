@@ -2,16 +2,16 @@ use actix::prelude::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
-use crate::routing;
+use crate::routing::{self, CompiledRoute};
 
 pub struct RouterActor {
-    routes: Arc<RwLock<Vec<(String, PathBuf)>>>,
+    routes: Arc<RwLock<Vec<CompiledRoute>>>,
 }
 
 impl RouterActor {
     pub fn new() -> Self {
         let pages_dir = Path::new("./pages");
-        let initial_routes = routing::get_routes(pages_dir);
+        let initial_routes = routing::get_compiled_routes(pages_dir);
         Self {
             routes: Arc::new(RwLock::new(initial_routes)),
         }
@@ -32,7 +32,7 @@ impl Handler<ReloadRoutes> for RouterActor {
     fn handle(&mut self, _msg: ReloadRoutes, _ctx: &mut Context<Self>) {
         log::debug!("A file change was detected. We're reloading the routes now!");
         let pages_dir = Path::new("./pages");
-        let new_routes = routing::get_routes(pages_dir);
+        let new_routes = routing::get_compiled_routes(pages_dir);
         let mut routes = self.routes.write().unwrap();
         *routes = new_routes;
         log::debug!("Routes have been successfully reloaded.");
@@ -50,23 +50,19 @@ impl Handler<MatchRoute> for RouterActor {
         let routes = self.routes.read().unwrap();
         let path = msg.0;
 
-        for (route_pattern, template_path) in routes.iter() {
-            let re = path_to_regex(route_pattern);
-            if let Some(captures) = re.captures(&path) {
-                let mut params = HashMap::new();
-                let original_param_names: Vec<&str> = route_pattern.split('/')
-                    .filter(|part| (part.starts_with('{') && part.ends_with('}')) || (part.starts_with('[') && part.ends_with(']')))
-                    .map(|part| &part[1..part.len() - 1])
+        for route in routes.iter() {
+            if let Some(captures) = route.regex.captures(&path) {
+                let params: HashMap<String, String> = route
+                    .param_names
+                    .iter()
+                    .filter_map(|name| {
+                        captures
+                            .name(name)
+                            .map(|value| (name.clone(), value.as_str().to_string()))
+                    })
                     .collect();
 
-                for (i, name) in re.capture_names().flatten().enumerate() {
-                    if let Some(value) = captures.name(name) {
-                        if let Some(original_name) = original_param_names.get(i) {
-                            params.insert(original_name.to_string(), value.as_str().to_string());
-                        }
-                    }
-                }
-                let mut template_path_str = template_path.to_str().unwrap().to_string();
+                let mut template_path_str = route.template_path.to_str().unwrap().to_string();
                 if template_path_str.starts_with("./") {
                     template_path_str = template_path_str[2..].to_string();
                 }
@@ -74,31 +70,5 @@ impl Handler<MatchRoute> for RouterActor {
             }
         }
         None
-    }
-}
-
-fn path_to_regex(path: &str) -> regex::Regex {
-    let pattern = path.split('/').map(|part| {
-        if (part.starts_with('{') && part.ends_with('}')) || (part.starts_with('[') && part.ends_with(']')) {
-            let param_name = &part[1..part.len() - 1];
-            let sanitized_param_name = param_name.replace('-', "_");
-            format!(r"(?P<{}>[^/]+)", sanitized_param_name)
-        } else {
-            regex::escape(part)
-        }
-    }).collect::<Vec<_>>().join("/");
-
-    match regex::Regex::new(&format!("^{}$", pattern)) {
-        Ok(re) => re,
-        Err(e) => {
-            log::error!(
-                "Failed to compile regex for path: '{}'. Error: {}. \
-                Note: Route parameters used as regex capture groups cannot contain hyphens. \
-                Please use underscores instead (e.g., [product_id]).",
-                path, e
-            );
-            // Return a regex that will never match to prevent panic.
-            regex::Regex::new("$^").unwrap()
-        }
     }
 }

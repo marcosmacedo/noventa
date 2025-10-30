@@ -99,18 +99,19 @@ impl TemplateRendererActor {
 
                 let components = self.components.read().unwrap();
                 let component = components.iter().find(|c| c.id == action_component_call.name).unwrap();
-                let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
+                if let Some(logic_path) = &component.logic_path {
+                    let module_path = path_to_module(logic_path).unwrap();
 
-                let execute_fn_msg = ExecuteFunction {
-                    module_path,
-                    function_name: format!("action_{}", action),
-                    request: msg.request_info.clone(),
-                    args: Some(kwargs_map_post),
-                    session_manager: msg.session_manager.clone(),
-                };
+                    let execute_fn_msg = ExecuteFunction {
+                        module_path,
+                        function_name: format!("action_{}", action),
+                        request: msg.request_info.clone(),
+                        args: Some(kwargs_map_post),
+                        session_manager: msg.session_manager.clone(),
+                    };
 
-                let result = futures::executor::block_on(self.interpreter.send(execute_fn_msg));
-                match result {
+                    let result = futures::executor::block_on(self.interpreter.send(execute_fn_msg));
+                    match result {
                         Ok(Ok(result)) => {
                             action_context = Some(result.context);
                         }
@@ -129,21 +130,24 @@ impl TemplateRendererActor {
                                 ..Default::default()
                             });
                         }
-                    Err(e) => {
-                        log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                        return Err(DetailedError {
-                            error_source: Some(ErrorSource::Python(crate::actors::interpreter::PythonError {
-                                message: e.to_string(),
-                                traceback: format!("{:?}", e),
-                                line_number: None,
-                                column_number: None,
-                                end_line_number: None,
-                                end_column_number: None,
-                                filename: None,
-                                source_code: None,
-                            })),
-                            ..Default::default()
-                        });
+                        Err(e) => {
+                            log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
+                            return Err(DetailedError {
+                                error_source: Some(ErrorSource::Python(
+                                    crate::actors::interpreter::PythonError {
+                                        message: e.to_string(),
+                                        traceback: format!("{:?}", e),
+                                        line_number: None,
+                                        column_number: None,
+                                        end_line_number: None,
+                                        end_column_number: None,
+                                        filename: None,
+                                        source_code: None,
+                                    },
+                                )),
+                                ..Default::default()
+                            });
+                        }
                     }
                 }
             }
@@ -174,46 +178,50 @@ impl TemplateRendererActor {
 
                 let components = components_clone.read().unwrap();
                 let component = components.iter().find(|c| c.id == name).unwrap();
-                let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
+                let context_result = if let Some(logic_path) = &component.logic_path {
+                    let module_path = path_to_module(logic_path).unwrap();
+                    let execute_fn_msg = ExecuteFunction {
+                        module_path,
+                        function_name: "load_template_context".to_string(),
+                        request: request_info_clone.clone(),
+                        args: Some(kwargs_map),
+                        session_manager: session_manager_clone.clone(),
+                    };
 
-                let execute_fn_msg = ExecuteFunction {
-                    module_path,
-                    function_name: "load_template_context".to_string(),
-                    request: request_info_clone.clone(),
-                    args: Some(kwargs_map),
-                    session_manager: session_manager_clone.clone(),
-                };
+                    let python_start_time = std::time::Instant::now();
+                    let future = interpreter_clone.send(execute_fn_msg);
+                    let result = futures::executor::block_on(future);
+                    let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
+                    health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
 
-                let python_start_time = std::time::Instant::now();
-                let future = interpreter_clone.send(execute_fn_msg);
-                let result = futures::executor::block_on(future);
-                let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
-                health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
-
-                let context_result = match result {
-                    Ok(Ok(res)) => Ok(res.context),
-                    Ok(Err(py_err)) => {
-                        let detailed_error = DetailedError {
-                            component: Some(ComponentInfo { name: name.clone() }),
-                            error_source: Some(ErrorSource::Python(py_err.clone())),
-                            message: py_err.message.clone(),
-                            file_path: py_err.filename.clone().unwrap_or_default(),
-                            line: py_err.line_number.unwrap_or(0) as u32,
-                            column: py_err.column_number.unwrap_or(0) as u32,
-                            end_line: py_err.end_line_number.map(|l| l as u32),
-                            end_column: py_err.end_column_number.map(|c| c as u32),
-                            ..Default::default()
-                        };
-                        let err = minijinja::Error::new(
-                            minijinja::ErrorKind::InvalidOperation,
-                            "Python function crashed",
-                        );
-                        Err(err.with_source(detailed_error))
+                    match result {
+                        Ok(Ok(res)) => Ok(res.context),
+                        Ok(Err(py_err)) => {
+                            let detailed_error = DetailedError {
+                                component: Some(ComponentInfo { name: name.clone() }),
+                                error_source: Some(ErrorSource::Python(py_err.clone())),
+                                message: py_err.message.clone(),
+                                file_path: py_err.filename.clone().unwrap_or_default(),
+                                line: py_err.line_number.unwrap_or(0) as u32,
+                                column: py_err.column_number.unwrap_or(0) as u32,
+                                end_line: py_err.end_line_number.map(|l| l as u32),
+                                end_column: py_err.end_column_number.map(|c| c as u32),
+                                ..Default::default()
+                            };
+                            let err = minijinja::Error::new(
+                                minijinja::ErrorKind::InvalidOperation,
+                                "Python function crashed",
+                            );
+                            Err(err.with_source(detailed_error))
+                        }
+                        Err(e) => {
+                            log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
+                            Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
+                        }
                     }
-                    Err(e) => {
-                        log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
-                    }
+                } else {
+                    // If there's no logic_path, there's no context to load.
+                    Ok(Value::from_serialize(serde_json::json!({})))
                 };
 
                 match context_result {
@@ -411,62 +419,103 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
                 let component = components.iter().find(|c| c.id == name).ok_or_else(|| {
                     minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
                 })?;
-                let module_path = path_to_module(component.logic_path.as_ref().unwrap()).unwrap();
-
-                let execute_fn_msg = ExecuteFunction {
-                    module_path,
-                    function_name: "load_template_context".to_string(),
-                    request: request_info_clone.clone(),
-                    args: Some(kwargs_map),
-                    session_manager: session_manager_clone.clone(),
-                };
-
-                let python_start_time = std::time::Instant::now();
-                let future = interpreter_clone.send(execute_fn_msg);
-                let result = futures::executor::block_on(future);
-                let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
-                health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
-
-                match result {
-                    Ok(Ok(result)) => {
-                        let components = components_clone.read().unwrap();
-                        let component = components.iter().find(|c| c.id == name).ok_or_else(|| {
-                            minijinja::Error::new(minijinja::ErrorKind::TemplateNotFound, "Component not found")
-                        })?;
-                        let mut template_path = component.template_path.clone();
-                        if template_path.starts_with("./") {
-                            template_path = template_path[2..].to_string();
-                        }
-                        let tmpl = state.env().get_template(&template_path)?;
-                        let mut rendered_component = tmpl.render(result.context)?;
-
-                        let replacement = format!(r#"$1<input type="hidden" name="component_id" value="{}">"#, name);
-                        rendered_component = FORM_REGEX.replace_all(&rendered_component, replacement).to_string();
-
-                        Ok(Value::from_safe_string(rendered_component))
-                    }
-                    Ok(Err(py_err)) => {
-                        let detailed_error = DetailedError {
-                            component: Some(ComponentInfo { name: name.clone() }),
-                            error_source: Some(ErrorSource::Python(py_err.clone())),
-                            message: py_err.message.clone(),
-                            file_path: py_err.filename.clone().unwrap_or_default(),
-                            line: py_err.line_number.unwrap_or(0) as u32,
-                            column: py_err.column_number.unwrap_or(0) as u32,
-                            end_line: py_err.end_line_number.map(|l| l as u32),
-                            end_column: py_err.end_column_number.map(|c| c as u32),
-                            ..Default::default()
+                if let Some(logic_path) = &component.logic_path {
+                    let module_path = path_to_module(logic_path).unwrap();
+                    let execute_fn_msg = ExecuteFunction {
+                        module_path,
+                        function_name: "load_template_context".to_string(),
+                        request: request_info_clone.clone(),
+                        args: Some(kwargs_map),
+                        session_manager: session_manager_clone.clone(),
                     };
-                        let err = minijinja::Error::new(
-                            minijinja::ErrorKind::InvalidOperation,
-                            "Python function crashed",
-                        );
-                        Err(err.with_source(detailed_error))
+
+                    let python_start_time = std::time::Instant::now();
+                    let future = interpreter_clone.send(execute_fn_msg);
+                    let result = futures::executor::block_on(future);
+                    let python_duration_ms = python_start_time.elapsed().as_secs_f64() * 1000.0;
+                    health_actor_clone.do_send(ReportPythonLatency(python_duration_ms));
+
+                    match result {
+                        Ok(Ok(result)) => {
+                            let components = components_clone.read().unwrap();
+                            let component =
+                                components.iter().find(|c| c.id == name).ok_or_else(|| {
+                                    minijinja::Error::new(
+                                        minijinja::ErrorKind::TemplateNotFound,
+                                        "Component not found",
+                                    )
+                                })?;
+                            let mut template_path = component.template_path.clone();
+                            if template_path.starts_with("./") {
+                                template_path = template_path[2..].to_string();
+                            }
+                            let tmpl = state.env().get_template(&template_path)?;
+                            let mut rendered_component = tmpl.render(result.context)?;
+
+                            let replacement = format!(
+                                r#"$1<input type="hidden" name="component_id" value="{}">"#,
+                                name
+                            );
+                            rendered_component = FORM_REGEX
+                                .replace_all(&rendered_component, replacement)
+                                .to_string();
+
+                            Ok(Value::from_safe_string(rendered_component))
+                        }
+                        Ok(Err(py_err)) => {
+                            let detailed_error = DetailedError {
+                                component: Some(ComponentInfo { name: name.clone() }),
+                                error_source: Some(ErrorSource::Python(py_err.clone())),
+                                message: py_err.message.clone(),
+                                file_path: py_err.filename.clone().unwrap_or_default(),
+                                line: py_err.line_number.unwrap_or(0) as u32,
+                                column: py_err.column_number.unwrap_or(0) as u32,
+                                end_line: py_err.end_line_number.map(|l| l as u32),
+                                end_column: py_err.end_column_number.map(|c| c as u32),
+                                ..Default::default()
+                            };
+                            let err = minijinja::Error::new(
+                                minijinja::ErrorKind::InvalidOperation,
+                                "Python function crashed",
+                            );
+                            Err(err.with_source(detailed_error))
+                        }
+                        Err(e) => {
+                            log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
+                            Err(minijinja::Error::new(
+                                minijinja::ErrorKind::InvalidOperation,
+                                "Mailbox error",
+                            )
+                            .with_source(e))
+                        }
                     }
-                    Err(e) => {
-                        log::error!("A mailbox error occurred: {}. This might indicate a problem with the server's internal communication.", e);
-                        Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Mailbox error").with_source(e))
+                } else {
+                    // If there's no logic_path, just render the template without context.
+                    let components = components_clone.read().unwrap();
+                    let component =
+                        components.iter().find(|c| c.id == name).ok_or_else(|| {
+                            minijinja::Error::new(
+                                minijinja::ErrorKind::TemplateNotFound,
+                                "Component not found",
+                            )
+                        })?;
+                    let mut template_path = component.template_path.clone();
+                    if template_path.starts_with("./") {
+                        template_path = template_path[2..].to_string();
                     }
+                    let tmpl = state.env().get_template(&template_path)?;
+                    let mut rendered_component =
+                        tmpl.render(Value::from_serialize(serde_json::json!({})))?;
+
+                    let replacement = format!(
+                        r#"$1<input type="hidden" name="component_id" value="{}">"#,
+                        name
+                    );
+                    rendered_component = FORM_REGEX
+                        .replace_all(&rendered_component, replacement)
+                        .to_string();
+
+                    Ok(Value::from_safe_string(rendered_component))
                 }
             },
         );
