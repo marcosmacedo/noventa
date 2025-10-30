@@ -333,6 +333,19 @@ pub async fn dynamic_route_handler(
     }
 }
 
+pub async fn handle_page_native(
+    req: HttpRequest,
+    payload: web::Payload,
+    renderer: web::Data<Recipient<RenderMessage>>,
+    session: Session,
+    path_params: web::Path<HashMap<String, String>>,
+    template_path: web::Data<String>,
+) -> HttpResponse {
+    let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
+    let template_path_str = template_path.get_ref().clone();
+    handle_page(req, payload, renderer, session, template_path_str, path_params.into_inner(), dev_mode).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,7 +373,9 @@ mod tests {
         fs::File::create(pages_dir.join("index.html")).unwrap();
         fs::File::create(pages_dir.join("about.html")).unwrap();
         fs::File::create(pages_dir.join("blog/first-post.html")).unwrap();
+        fs::create_dir_all(pages_dir.join("users")).unwrap();
         fs::File::create(pages_dir.join("users/[id].html")).unwrap();
+        fs::create_dir_all(pages_dir.join("posts/[category]")).unwrap();
         fs::File::create(pages_dir.join("posts/[category]/[post-id].html")).unwrap();
 
         let routes = get_compiled_routes(pages_dir);
@@ -368,31 +383,31 @@ mod tests {
         assert_eq!(routes.len(), 5);
 
         // Test: /posts/{category}/{post-id}
-        let route0 = &routes[0];
-        assert!(route0.regex.is_match("/posts/tech/123"));
-        assert!(!route0.regex.is_match("/posts/tech"));
-        assert_eq!(route0.param_names, vec!["category", "post_id"]);
+        let post_route = routes.iter().find(|r| r.template_path.ends_with("posts/[category]/[post-id].html")).unwrap();
+        assert!(post_route.regex.is_match("/posts/tech/123"));
+        assert!(!post_route.regex.is_match("/posts/tech"));
+        assert_eq!(post_route.param_names, vec!["category", "post_id"]);
 
         // Test: /users/{id}
-        let route1 = &routes[1];
-        assert!(route1.regex.is_match("/users/456"));
-        assert!(!route1.regex.is_match("/users/456/profile"));
-        assert_eq!(route1.param_names, vec!["id"]);
+        let user_route = routes.iter().find(|r| r.template_path.ends_with("users/[id].html")).unwrap();
+        assert!(user_route.regex.is_match("/users/456"));
+        assert!(!user_route.regex.is_match("/users/456/profile"));
+        assert_eq!(user_route.param_names, vec!["id"]);
 
         // Test: /blog/first-post
-        let route2 = &routes[2];
-        assert!(route2.regex.is_match("/blog/first-post"));
-        assert!(route2.param_names.is_empty());
+        let blog_route = routes.iter().find(|r| r.template_path.ends_with("blog/first-post.html")).unwrap();
+        assert!(blog_route.regex.is_match("/blog/first-post"));
+        assert!(blog_route.param_names.is_empty());
 
         // Test: /about
-        let route3 = &routes[3];
-        assert!(route3.regex.is_match("/about"));
-        assert!(route3.param_names.is_empty());
+        let about_route = routes.iter().find(|r| r.template_path.ends_with("about.html")).unwrap();
+        assert!(about_route.regex.is_match("/about"));
+        assert!(about_route.param_names.is_empty());
 
         // Test: /
-        let route4 = &routes[4];
-        assert!(route4.regex.is_match("/"));
-        assert!(route4.param_names.is_empty());
+        let index_route = routes.iter().find(|r| r.template_path.ends_with("index.html")).unwrap();
+        assert!(index_route.regex.is_match("/"));
+        assert!(index_route.param_names.is_empty());
     }
 
     #[test]
