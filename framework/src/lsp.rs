@@ -7,12 +7,8 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 // --- Global State ---
 
-struct FileInfo {
-    uri: Url,
-}
-
 lazy_static! {
-    static ref OPEN_FILES: DashMap<String, FileInfo> = DashMap::new();
+    static ref FILES_WITH_DIAGNOSTICS: DashMap<Url, ()> = DashMap::new();
 }
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -107,6 +103,7 @@ async fn listen_for_errors() {
 
             match Url::from_file_path(&normalized_path) {
                 Ok(uri) => {
+                    FILES_WITH_DIAGNOSTICS.insert(uri.clone(), ());
                     for client in ALL_CLIENTS.iter() {
                         client
                             .publish_diagnostics(uri.clone(), vec![diagnostic.clone()], None)
@@ -131,9 +128,22 @@ impl LanguageServer for Backend {
                 version: Some("0.1.0".to_string()),
             }),
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(
-                    TextDocumentSyncKind::FULL,
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::FULL),
+                        will_save: Some(false),
+                        will_save_wait_until: Some(false),
+                        save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                    },
                 )),
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                        supported: Some(true),
+                        change_notifications: Some(OneOf::Left(true)),
+                    }),
+                    file_operations: None,
+                }),
                 ..ServerCapabilities::default()
             },
         })
@@ -151,32 +161,13 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
-    async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri.clone();
-        if let Ok(file_path) = uri.to_file_path() {
-            if let Some(normalized_path) = file_path.canonicalize().ok().and_then(|p| p.to_str().map(|s| s.to_string())) {
-                log::debug!("File opened globally: {} -> {}", file_path.display(), normalized_path);
-                let info = FileInfo {
-                    uri,
-                };
-                OPEN_FILES.insert(normalized_path, info);
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        let uri = params.text_document.uri;
+        if FILES_WITH_DIAGNOSTICS.contains_key(&uri) {
+            for client in ALL_CLIENTS.iter() {
+                client.publish_diagnostics(uri.clone(), vec![], None).await;
             }
+            FILES_WITH_DIAGNOSTICS.remove(&uri);
         }
-    }
-
-    async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        let uri = params.text_document.uri.clone();
-        if let Ok(file_path) = uri.to_file_path() {
-            if let Some(normalized_path) = file_path.canonicalize().ok().and_then(|p| p.to_str().map(|s| s.to_string())) {
-                log::debug!("File closed globally: {}", normalized_path);
-                OPEN_FILES.remove(&normalized_path);
-            }
-        }
-    }
-
-    async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.client
-            .publish_diagnostics(params.text_document.uri, vec![], None)
-            .await;
     }
 }
