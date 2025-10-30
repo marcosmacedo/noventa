@@ -87,8 +87,14 @@ impl Actor for PageRendererActor {
     type Context = Context<Self>;
 }
 
+#[derive(Clone)]
+pub enum RenderOutput {
+    Html(String),
+    Redirect(String),
+}
+
 #[derive(Message, Clone)]
-#[rtype(result = "Result<String, crate::errors::DetailedError>")]
+#[rtype(result = "Result<RenderOutput, crate::errors::DetailedError>")]
 pub struct RenderMessage {
     pub template_path: String,
     pub request_info: Arc<HttpRequestInfo>,
@@ -96,7 +102,7 @@ pub struct RenderMessage {
 }
 
 impl Handler<RenderMessage> for PageRendererActor {
-    type Result = ResponseFuture<Result<String, crate::errors::DetailedError>>;
+    type Result = ResponseFuture<Result<RenderOutput, crate::errors::DetailedError>>;
 
     fn handle(&mut self, msg: RenderMessage, _ctx: &mut Context<Self>) -> Self::Result {
         let template_renderer = self.template_renderer.clone();

@@ -1,7 +1,5 @@
 use actix::prelude::*;
 use notify::{RecommendedWatcher, Watcher, RecursiveMode, Result};
-use ignore::gitignore::Gitignore;
-use std::fs;
 use std::path::Path;
 use crate::actors::ws_server::{WsServer, BroadcastReload};
 use crate::actors::router::{RouterActor, ReloadRoutes};

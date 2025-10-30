@@ -1,5 +1,5 @@
 use crate::actors::health::{HealthActor, ReportRtt};
-use crate::actors::page_renderer::{PageRendererActor, RenderMessage};
+use crate::actors::page_renderer::{PageRendererActor, RenderMessage, RenderOutput};
 use actix::prelude::*;
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -126,7 +126,7 @@ impl Handler<DecrementActive> for LoadSheddingActor {
 
 
 impl Handler<RenderMessage> for LoadSheddingActor {
-    type Result = ResponseFuture<Result<String, crate::errors::DetailedError>>;
+    type Result = ResponseFuture<Result<RenderOutput, crate::errors::DetailedError>>;
 
     fn handle(&mut self, msg: RenderMessage, ctx: &mut Context<Self>) -> Self::Result {
         if let Some(limit) = self.concurrency_limit {
