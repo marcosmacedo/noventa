@@ -17,8 +17,13 @@ if config.config_file_name is not None:
 # --- Model Discovery ---
 def import_models():
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    models_pattern = os.path.join(project_root, 'components', '**', '*_models.py')
-    models_files = glob.glob(models_pattern, recursive=True)
+    # Search for models in components
+    components_models_pattern = os.path.join(project_root, 'components', '**', '*_models.py')
+    models_files = glob.glob(components_models_pattern, recursive=True)
+    
+    # Search for models in project root ./models
+    root_models_pattern = os.path.join(project_root, 'models', '*.py')
+    models_files.extend(glob.glob(root_models_pattern))
     
     bases = []
     for models_file in models_files:
