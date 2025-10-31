@@ -166,8 +166,8 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
 
             let func = module.getattr(py, &msg.function_name).map_err(|e| pyerr_to_pyerror(e, py))?;
 
-            let py_request_obj = Py::new(py, py_request).unwrap();
-            let py_session_obj = Py::new(py, py_session).unwrap();
+            let py_request_obj = Py::new(py, py_request).map_err(|e| pyerr_to_pyerror(e, py))?;
+            let py_session_obj = Py::new(py, py_session).map_err(|e| pyerr_to_pyerror(e, py))?;
 
             let py_args = PyDict::new(py);
             if let Some(args) = msg.args {
@@ -190,7 +190,10 @@ impl Handler<ExecuteFunction> for PythonInterpreterActor {
             let db_arg = self.db_instance.as_ref().map_or(py.None(), |db| db.clone_ref(py).into());
 
             // Load the embedded Python utils from the new path
-            let utils_code = CString::new(crate::scripts::python_embed::UTILS_PY).unwrap();
+            let utils_code = CString::new(crate::scripts::python_embed::UTILS_PY).map_err(|e| PythonError {
+                message: format!("Failed to create CString from embedded utils.py: {}", e),
+                ..Default::default()
+            })?;
             let utils_filename = CString::new("_noventa_internal_dispatch.py").unwrap();
             let utils_module_name = CString::new("_noventa_internal_dispatch").unwrap();
             let utils_module = PyModule::from_code(py, &utils_code, &utils_filename, &utils_module_name)

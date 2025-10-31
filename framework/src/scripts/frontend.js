@@ -32,10 +32,9 @@ function handleRequest(url, options, isPopState = false) {
     };
 
     if (fetchOptions.headers['X-Dev-Reload']) {
-        console.log("[frontend.js] Ignoring dev reload request.");
         return;
     }
-    console.log("[frontend.js] Handling request.");
+
     const loadingBar = document.getElementById('xhr-loading-bar');
 
     if (loadingBar) {
@@ -54,15 +53,15 @@ function handleRequest(url, options, isPopState = false) {
         .then(response => {
             if (response.headers.has('X-Noventa-Redirect')) {
                 const redirectHeader = response.headers.get('X-Noventa-Redirect');
-                console.log('[frontend.js] Redirect header received:', redirectHeader);
+
                 const redirectUrl = new URL(redirectHeader, window.location.origin);
-                console.log('[frontend.js] Parsed redirect URL object:', redirectUrl);
+
 
                 if (redirectUrl.origin === window.location.origin) {
                     // The server has told us to redirect. We will initiate a new request
                     // for the new URL. This new request will be responsible for updating
                     // the browser history when it completes successfully.
-                    console.log('[frontend.js] Initiating client-side redirect to:', redirectUrl.href);
+
                     handleRequest(redirectUrl.href, { method: 'GET' }, false);
                 } else {
                     // For external redirects, we do a full page load.

@@ -83,7 +83,10 @@ impl TemplateRendererActor {
 
         // Extract form data to identify which component action was triggered.
         let form_data: HashMap<String, String> =
-            serde_json::from_value(serde_json::Value::Object(msg.request_info.form_data.clone())).unwrap();
+            serde_json::from_value(serde_json::Value::Object(msg.request_info.form_data.clone())).map_err(|e| DetailedError {
+                message: format!("Failed to parse form data: {}", e),
+                ..Default::default()
+            })?;
         let form_component_id = form_data.get("component_id").cloned().unwrap_or_default();
         let action = form_data.get("action").cloned().unwrap_or_default();
 
@@ -113,10 +116,19 @@ impl TemplateRendererActor {
                 let mut kwargs_map_post = action_component_call.kwargs.clone();
                 kwargs_map_post.extend(form_data_value);
 
-                let components = self.components.read().unwrap();
-                let component = components.iter().find(|c| c.id == action_component_call.name).unwrap();
+                let components = self.components.read().map_err(|_| DetailedError {
+                    message: "Component lock is poisoned".to_string(),
+                    ..Default::default()
+                })?;
+                let component = components.iter().find(|c| c.id == action_component_call.name).ok_or_else(|| DetailedError {
+                    message: format!("Component '{}' not found", action_component_call.name),
+                    ..Default::default()
+                })?;
                 if let Some(logic_path) = &component.logic_path {
-                    let module_path = path_to_module(logic_path).unwrap();
+                    let module_path = path_to_module(logic_path).map_err(|e| DetailedError {
+                        message: format!("Invalid module path: {}", e),
+                        ..Default::default()
+                    })?;
 
                     let execute_fn_msg = ExecuteFunction {
                         module_path,
@@ -646,13 +658,9 @@ impl Handler<UpdateComponents> for TemplateRendererActor {
 
 fn path_to_module(path_str: &str) -> Result<String, std::io::Error> {
     let path = std::path::Path::new(path_str);
-    
+
     // Clean the path to remove "./"
-    let cleaned_path = if path.starts_with("./") {
-        path.strip_prefix("./").unwrap()
-    } else {
-        path
-    };
+    let cleaned_path = path.strip_prefix("./").unwrap_or(path);
 
     // Convert to string and remove the .py extension
     let module_str = cleaned_path.to_str().ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "Path contains invalid UTF-8"))?;

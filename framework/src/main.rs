@@ -39,6 +39,7 @@ use actors::dev_websockets::DevWebSocket;
 use actors::file_watcher::FileWatcherActor;
 use actors::router::RouterActor;
 use actors::ws_server::WsServer;
+use actors::ssg::SSGActor;
 
 use clap::Parser;
 
@@ -65,32 +66,54 @@ enum Commands {
         #[clap(long, action)]
         no_input: bool,
     },
+    Ssg {
+        #[clap(long, action)]
+        path: String,
+    }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
-    let (dev_mode, command) = match cli.command {
-        Some(Commands::Dev) => (true, Some(Commands::Dev)),
-        Some(Commands::Serve) => (false, Some(Commands::Serve)),
-        Some(Commands::Disco) => (false, Some(Commands::Disco)),
-        Some(Commands::New { no_input }) => (false, Some(Commands::New { no_input })),
+    let (dev_mode, command) = match &cli.command {
+        Some(Commands::Dev) => (true, cli.command.as_ref()),
+        Some(Commands::Serve) => (false, cli.command.as_ref()),
+        Some(Commands::Disco) => (false, cli.command.as_ref()),
+        Some(Commands::New { .. }) => (false, cli.command.as_ref()),
+        Some(Commands::Ssg { .. }) => (true, cli.command.as_ref()),
         None => (false, None),
     };
 
-    let command_to_run = command.as_ref().or(cli.command.as_ref());
+    match command {
+        Some(Commands::Dev) | Some(Commands::Serve) => {
+            let server = run_dev_server(dev_mode).await?;
+            server.await
+        }
+        Some(Commands::Disco) => disco::server::run_disco_server().await,
+        Some(Commands::New { no_input }) => create_new_project(cli.starter.as_deref(), *no_input),
+        Some(Commands::Ssg { path }) => {
+            let srv = run_dev_server(true).await?;
+            let srv_handle = srv.handle();
+            let ssg_actor = SSGActor::new().start();
 
-    match command_to_run {
-        Some(Commands::Dev) => run_dev_server(dev_mode).await,
+            tokio::spawn(srv);
+
+            let res = ssg_actor.send(actors::ssg::SsgMessage { output_path: path.into() }).await;
+
+            if let Err(e) = res {
+                log::error!("SSG actor mailbox error: {}", e);
+            }
+            
+            srv_handle.stop(true).await;
+            log::info!("Server stopped. Exiting.");
+            Ok(())
+        }
         None => {
             use clap::CommandFactory;
             Cli::command().print_help()?;
             Ok(())
         }
-        Some(Commands::Serve) => run_dev_server(dev_mode).await,
-        Some(Commands::Disco) => disco::server::run_disco_server().await,
-        Some(Commands::New { no_input }) => create_new_project(cli.starter.as_deref(), *no_input),
     }
 }
 
@@ -133,7 +156,7 @@ fn create_new_project(starter_path: Option<&str>, no_input: bool) -> std::io::Re
     Ok(())
 }
 
-async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
+async fn run_dev_server(dev_mode: bool) -> std::io::Result<actix_web::dev::Server> {
     let log_level = config::CONFIG.log_level.as_deref().unwrap_or(if dev_mode { "info" } else { "warn" });
     logger::init_logger(log_level);
     // Inform the errors module about the runtime dev_mode value so it can
@@ -398,7 +421,7 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
         dev_mode
     );
 
-    server.run().await
+    Ok(server.run())
 }
 
 async fn dev_ws(req: HttpRequest, stream: web::Payload, srv: web::Data<Addr<WsServer>>) -> Result<actix_web::HttpResponse, Error> {
