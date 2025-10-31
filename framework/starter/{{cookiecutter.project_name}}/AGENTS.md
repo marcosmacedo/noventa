@@ -22,7 +22,7 @@ with designing a beautiful and functional website or web application.
     *   `db`: An active SQLAlchemy session object.
     *   `**props`: A key-value dictionary of parameters passed to the component. Props must be strings.
  **Data Flow:** `_logic.py` executes before the template renders and it passes the template a dictionary. The template can only access data from this dictionary. Context is local to components and not shared across components.
- **Prohibited Jinja Functions:** Do not use functions, filters or variables in Jinja, only use evaluations and conditional rendering. The only context available is the returned dictionary from the `[component_name]_logic.py` for that component. `format` filter and other do not exist in this environment
+ **Prohibited Jinja Functions:** Do not use functions, filters or variables in Jinja, only use evaluations and conditional rendering. The only context available is the returned dictionary from the `[component_name]_logic.py` for that component. `format` filter and other do not exist in this environment. You cannot use `request` or `session` directly inside templates.
  **Form Handling:** Forms require a hidden input `<input type="hidden" name="action" value="[your_action_name]">`. The POST data is handled by an `action_[your_action_name](request, session, db, **props)` function in `_logic.py`.
  **Database Models:** Use SQLAlchemy's `DeclarativeBase` to create models. Models should be in a file `[component_name]_models.py` inside each component's folder if it will only be used in that model or else put it inside `./models` folder.
  **Database Seeding:** Create python seed scripts using SQLAlchemy in `./migrations/seed` and run them after migrations.
@@ -40,6 +40,8 @@ with designing a beautiful and functional website or web application.
  **Design System** Ensure you create a tailwind configuration and set up a design system with a set of colors, fonts and styles. Use only these throughout pages and components, do not use anything beside what you defined in the design system. Define the design system in the layout used across pages
  **Development Mindset** Never implement more than one complete functionality at at a time, and ensure the functionality looks beautiful and adheres to the design system being used
  **Placeholder Images** You can use placeholder images from `https://picsum.photos/200/300` for general images and `https://i.pravatar.cc/300` for person avatars and faces. Use them unless the user instructs to use a particular image or not use any at all.
+
+ Golden rule: Maximize the visuals of the website, it should look like it was developed by a huge team of designers and artists with extreme attention to minimal details that improve the visuals and elevate the site.
 
 **Planning List:** 
 Your development workflow should follow this pattern:

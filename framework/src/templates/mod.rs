@@ -89,75 +89,81 @@ pub fn log_detailed_error(detailed_error: &DetailedError) {
     if let Err(e) = ERROR_CHANNEL.send(error_clone.to_json()) {
         log::error!("Failed to send error to ERROR_CHANNEL: {}", e);
     }
-    log::error!("");
+
+    const RED: &str = "\x1b[31m";
+    const RESET: &str = "\x1b[0m";
+
+    log::error!("{}[ERROR]{}", RED, RESET);
     if let Some(route) = &error_clone.route {
-        log::error!("Page: {}", route);
+        log::error!("{}  Page: {}{}", RED, route, RESET);
     }
     if let Some(template) = &error_clone.page {
-        log::error!("Template: {}", template.name);
+        log::error!("{}  Template: {}{}", RED, template.name, RESET);
     }
     if let Some(component) = &error_clone.component {
-        log::error!("Component: {}", component.name);
+        log::error!("{}  Component: {}{}", RED, component.name, RESET);
     }
-    log::error!("");
 
     if let Some(error_source) = &error_clone.error_source {
         match error_source {
             crate::errors::ErrorSource::Python(py_err) => {
-                log::error!("Error: {}", py_err.message);
-                log::error!("Type: Python Error");
-                log::error!("File: {}", error_clone.file_path);
+                log::error!("{}  Error: {}{}", RED, py_err.message, RESET);
+                log::error!("{}  File: {} @ line {}{}", RED, error_clone.file_path, py_err.line_number.unwrap_or(0), RESET);
                 log::error!("");
+                log::error!("{}  Code:{}", RED, RESET);
 
                 if let (Some(code), Some(line_num)) = (py_err.source_code.as_ref(), py_err.line_number) {
                     let lines: Vec<_> = code.lines().collect();
-                    let start_line = (line_num as isize - 7).max(0) as usize;
-                    let end_line = (line_num + 7).min(lines.len());
+                    let start_line = (line_num as isize - 3).max(0) as usize;
+                    let end_line = (line_num + 3).min(lines.len());
 
                     for i in start_line..end_line {
                         let line = lines[i];
                         let num = i + 1;
                         let is_highlighted = num == line_num;
                         if is_highlighted {
-                            log::error!("> {:>4} | {}", num, line);
+                            log::error!("{}   > {:>4} | {}{}", RED, num, line, RESET);
                         } else {
-                            log::error!("  {:>4} | {}", num, line);
+                            log::error!("{}     {:>4} | {}{}", RED, num, line, RESET);
                         }
                     }
                 }
 
                 log::error!("");
-                log::error!("Backtrace:");
-                log::error!("{}", py_err.traceback);
+                log::error!("{}  Traceback:{}", RED, RESET);
+                for line in py_err.traceback.lines() {
+                    log::error!("{}  {}{}", RED, line, RESET);
+                }
             }
             crate::errors::ErrorSource::Template(tmpl_err) => {
+                log::error!("{}  Error: {}{}", RED, tmpl_err.detail, RESET);
+                log::error!("{}  File: {} @ line {}{}", RED, tmpl_err.name, tmpl_err.line, RESET);
                 log::error!("");
-                log::error!("Error: {}", tmpl_err.detail);
-                log::error!("Type: Template Error");
-                log::error!("File: {}", tmpl_err.name);
-                log::error!("");
+                log::error!("{}  Code:{}", RED, RESET);
 
                 if let Some(code) = &tmpl_err.source_code {
                     let lines: Vec<_> = code.lines().collect();
                     let line_num = tmpl_err.line;
-                    let start_line = (line_num as isize - 7).max(0) as usize;
-                    let end_line = (line_num + 7).min(lines.len());
+                    let start_line = (line_num as isize - 3).max(0) as usize;
+                    let end_line = (line_num + 3).min(lines.len());
 
                     for i in start_line..end_line {
                         let line = lines[i];
                         let num = i + 1;
                         let is_highlighted = num == line_num;
                         if is_highlighted {
-                            log::error!("> {:>4} | {}", num, line);
+                            log::error!("{}   > {:>4} | {}{}", RED, num, line, RESET);
                         } else {
-                            log::error!("  {:>4} | {}", num, line);
+                            log::error!("{}     {:>4} | {}{}", RED, num, line, RESET);
                         }
                     }
                 }
                 if let Some(traceback) = &tmpl_err.traceback {
                     log::error!("");
-                    log::error!("Traceback:");
-                    log::error!("{}", traceback);
+                    log::error!("{}  Traceback:{}", RED, RESET);
+                    for line in traceback.lines() {
+                        log::error!("{}  {}{}", RED, line, RESET);
+                    }
                 }
             }
         }

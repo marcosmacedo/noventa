@@ -30,11 +30,11 @@ impl Actor for LspActor {
 
         // Spawn the server to accept client connections
         tokio::spawn(async {
-            log::info!("LSP server started on 127.0.0.1:9090");
+            log::info!("Noventa's VisualStudio Extension server started on 127.0.0.1:9090");
             let listener = tokio::net::TcpListener::bind("127.0.0.1:9090").await.unwrap();
             loop {
                 let (stream, _) = listener.accept().await.unwrap();
-                log::info!("LSP client connected");
+                log::info!("Noventa's Extension client connected");
                 let (read, write) = tokio::io::split(stream);
 
                 let (service, socket) = LspService::new(|client| {
@@ -49,7 +49,7 @@ impl Actor for LspActor {
     }
 
     fn stopped(&mut self, _ctx: &mut Self::Context) {
-        log::info!("LSP server actor stopped");
+        log::info!("Noventa's Extension server stopped");
     }
 }
 
@@ -156,7 +156,7 @@ impl LanguageServer for Backend {
     }
 
     async fn shutdown(&self) -> Result<()> {
-        log::info!("LSP server shutting down");
+        log::info!("Noventa's Extension server shutting down");
         ALL_CLIENTS.remove(&self.client_id);
         Ok(())
     }

@@ -8,3 +8,4 @@ pub mod file_watcher;
 pub mod ws_server;
 pub mod router;
 pub mod session_manager;
+pub mod ssg;
