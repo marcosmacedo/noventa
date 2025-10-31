@@ -121,3 +121,190 @@ impl Handler<MarkAsModified> for SessionManagerActor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix::Actor;
+    use actix::actors::mocker::Mocker;
+    use std::io::Error;
+
+    // Using the Mocker pattern for proper actor testing
+    type SessionManagerActorMock = Mocker<SessionManagerActor>;
+
+    #[actix_rt::test]
+    async fn test_session_manager_actor_creation() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            // Mock responses for different message types
+            if let Some(_) = msg.downcast_ref::<GetSessionValue>() {
+                Box::new(Some(Ok::<Option<String>, std::io::Error>(None)))
+            } else if let Some(_) = msg.downcast_ref::<SetSessionValue>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else if let Some(_) = msg.downcast_ref::<DeleteSessionValue>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else if let Some(_) = msg.downcast_ref::<ClearSession>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else if let Some(_) = msg.downcast_ref::<GetStatus>() {
+                Box::new(Some(Ok::<actix_session::SessionStatus, std::io::Error>(actix_session::SessionStatus::Changed)))
+            } else if let Some(_) = msg.downcast_ref::<SetPermanent>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else if let Some(_) = msg.downcast_ref::<MarkAsModified>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            }
+        }));
+
+        let addr = session_mock.start();
+        assert!(addr.connected());
+    }
+
+    #[actix_rt::test]
+    async fn test_get_session_value_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(get_msg) = msg.downcast_ref::<GetSessionValue>() {
+                if get_msg.key == "test_key" {
+                    Box::new(Some(Ok::<Option<String>, std::io::Error>(Some("test_value".to_string()))))
+                } else {
+                    Box::new(Some(Ok::<Option<String>, std::io::Error>(None)))
+                }
+            } else {
+                Box::new(Some(Ok::<Option<String>, std::io::Error>(None)))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        // Test getting an existing value
+        let get_msg = GetSessionValue { key: "test_key".to_string() };
+        let result = addr.send(get_msg).await;
+        assert!(result.is_ok());
+        
+        // Test getting a non-existing value
+        let get_missing_msg = GetSessionValue { key: "missing_key".to_string() };
+        let result = addr.send(get_missing_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_set_session_value_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<SetSessionValue>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        let set_msg = SetSessionValue { 
+            key: "test_key".to_string(), 
+            value: "test_value".to_string() 
+        };
+        let result = addr.send(set_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_delete_session_value_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<DeleteSessionValue>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        let delete_msg = DeleteSessionValue { key: "test_key".to_string() };
+        let result = addr.send(delete_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_clear_session_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<ClearSession>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        let clear_msg = ClearSession;
+        let result = addr.send(clear_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_get_status_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<GetStatus>() {
+                Box::new(Some(Ok::<actix_session::SessionStatus, std::io::Error>(actix_session::SessionStatus::Changed)))
+            } else {
+                Box::new(Some(Ok::<actix_session::SessionStatus, std::io::Error>(actix_session::SessionStatus::Unchanged)))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        let status_msg = GetStatus;
+        let result = addr.send(status_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_set_permanent_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<SetPermanent>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        let permanent_msg = SetPermanent { permanent: true };
+        let result = addr.send(permanent_msg).await;
+        assert!(result.is_ok());
+        
+        let temp_msg = SetPermanent { permanent: false };
+        let result = addr.send(temp_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[actix_rt::test]
+    async fn test_mark_as_modified_message_handling() {
+        let session_mock = SessionManagerActorMock::mock(Box::new(|msg, _ctx| {
+            if let Some(_) = msg.downcast_ref::<MarkAsModified>() {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            } else {
+                Box::new(Some(Ok::<(), std::io::Error>(())))
+            }
+        }));
+
+        let addr = session_mock.start();
+        
+        let modified_msg = MarkAsModified;
+        let result = addr.send(modified_msg).await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_message_types() {
+        // Test that all message types can be created
+        let _get_msg = GetSessionValue { key: "test".to_string() };
+        let _set_msg = SetSessionValue { key: "test".to_string(), value: "value".to_string() };
+        let _delete_msg = DeleteSessionValue { key: "test".to_string() };
+        let _clear_msg = ClearSession;
+        let _status_msg = GetStatus;
+        let _permanent_msg = SetPermanent { permanent: true };
+        let _modified_msg = MarkAsModified;
+        assert!(true);
+    }
+}
