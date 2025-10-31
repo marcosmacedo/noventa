@@ -15,12 +15,19 @@ def main():
         # Get the path to the starter templates
         starter_path = files('noventa').joinpath('starter')
 
+        # Get the Python home path
+        python_home = sys.prefix
+        
+        # Set the PYTHONHOME environment variable for the subprocess
+        env = os.environ.copy()
+        env['PYTHONHOME'] = python_home
+
         with as_file(noventa_binary_path) as bin_path, as_file(starter_path) as st_path:
             # Pass the starter path as a --starter flag
             cmd = [str(bin_path), "--starter", str(st_path)] + sys.argv[1:]
             
-            # Execute the binary
-            result = subprocess.run(cmd)
+            # Execute the binary with the modified environment
+            result = subprocess.run(cmd, env=env)
             sys.exit(result.returncode)
 
     except Exception as e:
