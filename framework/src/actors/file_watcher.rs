@@ -65,6 +65,10 @@ impl Actor for FileWatcherActor {
                             return;
                         }
 
+                        if relative_path.to_str().map_or(false, |s| s.contains("__pycache__")) {
+                            return;
+                        }
+
                         log::debug!("Detected a change in: {:?}", relative_path);
 
                         let mut futures = Vec::new();

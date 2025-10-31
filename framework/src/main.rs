@@ -43,6 +43,11 @@ use actors::ssg::SSGActor;
 
 use clap::Parser;
 
+struct DevServerState {
+    watcher: Addr<FileWatcherActor>,
+    lsp: Addr<lsp::LspActor>,
+}
+
 #[derive(Parser)]
 #[command(name = "noventa")]
 #[command(about = "A framework for building web applications with Python and Rust.", long_about = None)]
@@ -173,18 +178,24 @@ async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
 
     let router_addr = RouterActor::new().start();
     let ws_server = WsServer::new().start();
-    let _watcher = Some(FileWatcherActor::new(
+    let watcher = FileWatcherActor::new(
         ws_server.clone(),
         router_addr.clone(),
         template_renderer_addr.clone(),
         interpreters_addr.clone(),
     )
-    .start());
-    let _lsp_actor = Some(lsp::LspActor.start());
+    .start();
+    let lsp_actor = lsp::LspActor.start();
+
+    let server_state = web::Data::new(DevServerState {
+        watcher,
+        lsp: lsp_actor,
+    });
 
     let server = HttpServer::new(move || {
         let mut app = App::new()
             .wrap(actix_web::middleware::Compress::default())
+            .app_data(server_state.clone())
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(true))
@@ -311,21 +322,6 @@ async fn configure_server(
         .as_deref()
         .unwrap_or(if dev_mode { "info" } else { "warn" });
     logger::init_logger(log_level);
-
-    pyo3::Python::attach(|py| {
-        let sys = py.import("sys").unwrap();
-        let path = sys.getattr("path").unwrap();
-        let path_list = path.downcast::<pyo3::types::PyList>().unwrap();
-
-        if path_list
-            .append("/Users/marcos/Documents/noventa/framework")
-            .is_err()
-        {
-            log::error!("Failed to add framework to sys.path");
-        }
-        Ok::<(), pyo3::PyErr>(())
-    })
-    .unwrap();
 
     let components_dir = Path::new("./components");
     let components = components::scan_components(components_dir)?;
