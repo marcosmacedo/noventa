@@ -1,8 +1,8 @@
 use actix::prelude::*;
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::{Arc, RwLock};
 use crate::routing::{self, CompiledRoute};
+use crate::config;
 
 pub struct RouterActor {
     routes: Arc<RwLock<Vec<CompiledRoute>>>,
@@ -10,8 +10,8 @@ pub struct RouterActor {
 
 impl RouterActor {
     pub fn new() -> Self {
-        let pages_dir = Path::new("./pages");
-        let initial_routes = routing::get_compiled_routes(pages_dir);
+        let pages_dir = config::BASE_PATH.join("pages");
+        let initial_routes = routing::get_compiled_routes(&pages_dir);
         Self {
             routes: Arc::new(RwLock::new(initial_routes)),
         }
@@ -31,8 +31,8 @@ impl Handler<ReloadRoutes> for RouterActor {
 
     fn handle(&mut self, _msg: ReloadRoutes, _ctx: &mut Context<Self>) {
         log::debug!("A file change was detected. We're reloading the routes now!");
-        let pages_dir = Path::new("./pages");
-        let new_routes = routing::get_compiled_routes(pages_dir);
+        let pages_dir = config::BASE_PATH.join("pages");
+        let new_routes = routing::get_compiled_routes(&pages_dir);
         let mut routes = self.routes.write().unwrap();
         *routes = new_routes;
         log::debug!("Routes have been successfully reloaded.");
@@ -62,10 +62,12 @@ impl Handler<MatchRoute> for RouterActor {
                     })
                     .collect();
 
-                let mut template_path_str = route.template_path.to_str().unwrap().to_string();
-                if template_path_str.starts_with("./") {
-                    template_path_str = template_path_str[2..].to_string();
-                }
+                let template_path_str = route.template_path.strip_prefix(&*config::BASE_PATH).unwrap_or(&route.template_path).to_str().unwrap().to_string();
+                let template_path_str = if template_path_str.starts_with("/") {
+                    template_path_str[1..].to_string()
+                } else {
+                    template_path_str
+                };
                 return Some((template_path_str, params));
             }
         }

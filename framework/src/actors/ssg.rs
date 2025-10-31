@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::routing;
 use std::fs;
 use std::io;
+use crate::config;
 
 #[derive(Message)]
 #[rtype(result = "io::Result<()>")]
@@ -48,8 +49,8 @@ impl Handler<SsgMessage> for SSGActor {
             }
             fs::create_dir_all(&msg.output_path)?;
 
-            let pages_dir = Path::new("./pages");
-            let routes = routing::get_compiled_routes(pages_dir);
+            let pages_dir = config::BASE_PATH.join("pages");
+            let routes = routing::get_compiled_routes(&pages_dir);
             let client = reqwest::Client::builder()
                 .danger_accept_invalid_certs(true)
                 .build()
@@ -92,7 +93,11 @@ impl Handler<SsgMessage> for SSGActor {
             }
 
             if let Some(static_path_str) = &crate::config::CONFIG.static_path {
-                let static_path = Path::new(static_path_str);
+                let static_path = if static_path_str.starts_with('/') {
+                    Path::new(static_path_str).to_path_buf()
+                } else {
+                    crate::config::BASE_PATH.join(static_path_str)
+                };
                 if static_path.exists() {
                     log::info!("Copying static files from: {:?}", static_path);
                     let static_dir_name = static_path.file_name().unwrap_or_else(|| std::ffi::OsStr::new("static"));

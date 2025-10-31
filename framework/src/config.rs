@@ -78,6 +78,22 @@ pub struct Config {
     pub log_level: Option<String>,
 }
 
+lazy_static! {
+    pub static ref BASE_PATH: std::path::PathBuf = find_config_file();
+}
+
+fn find_config_file() -> std::path::PathBuf {
+    let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let config_path = current_dir.join("config.yaml");
+    if config_path.exists() {
+        current_dir
+    } else {
+        // If config.yaml doesn't exist in current directory, use current directory anyway
+        // The error will be caught when trying to load the config
+        current_dir
+    }
+}
+
 impl Config {
     pub fn from_file(path: &str) -> Result<Self, ConfigError> {
         let content = fs::read_to_string(path)?;
@@ -93,19 +109,22 @@ cfg_if! {
         }
     } else {
         lazy_static! {
-            pub static ref CONFIG: Config = match Config::from_file("./config.yaml") {
-                Ok(config) => config,
-                Err(e) => {
-                    match e {
-                        ConfigError::Io(_) => {
-                            println!("I couldn't find the `config.yaml` file. Make sure it's in the same directory you're running the application from.");
-                        },
-                        ConfigError::Parse(err) => {
-                            println!("There seems to be a syntax error in your `config.yaml` file. Please check the formatting.");
-                            println!("Details: {}", err);
+            pub static ref CONFIG: Config = {
+                let config_path = BASE_PATH.join("config.yaml");
+                match Config::from_file(config_path.to_str().unwrap()) {
+                    Ok(config) => config,
+                    Err(e) => {
+                        match e {
+                            ConfigError::Io(_) => {
+                                println!("I couldn't find the `config.yaml` file. Make sure it's in the same directory you're running the application from or a parent directory.");
+                            },
+                            ConfigError::Parse(err) => {
+                                println!("There seems to be a syntax error in your `config.yaml` file. Please check the formatting.");
+                                println!("Details: {}", err);
+                            }
                         }
+                        std::process::exit(1);
                     }
-                    std::process::exit(1);
                 }
             };
         }

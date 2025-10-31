@@ -6,3 +6,4 @@ build/
 framework/starter/.git
 target/rust-analyzer/flycheck0
 .vscode
+dist/
