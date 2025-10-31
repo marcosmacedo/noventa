@@ -1,8 +1,8 @@
-let currentPath = window.location.pathname + window.location.search;
+let currentPath = window.location.pathname;
 
 function handleNavigation(newUrl) {
     const newPathURL = new URL(newUrl, window.location.origin);
-    const newPath = newPathURL.pathname + newPathURL.search;
+    const newPath = newPathURL.pathname;
 
     if (newPath !== currentPath) {
         window.scrollTo(0, 0);
@@ -85,20 +85,23 @@ function handleRequest(url, options, isPopState = false) {
             }
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            const morphdomOptions = {
-                onBeforeNodeDiscarded: function(node) {
-                    if (node.id === 'xhr-loading-bar' || node.id === 'xhr-loading-bar-styles') {
-                        return false; // Don't discard the loading bar or its styles
+            const idiomorphOptions = {
+                callbacks: {
+                    beforeNodeRemoved: function(node) {
+                        if (node.id === 'xhr-loading-bar' || node.id === 'xhr-loading-bar-styles') {
+                            return false; // Don't discard the loading bar or its styles
+                        }
+                        return true;
                     }
-                }
+                },
+                restoreFocus: true
             };
-            morphdom(document.head, doc.head, morphdomOptions);
-            morphdom(document.body, doc.body, morphdomOptions);
+            Idiomorph.morph(document.documentElement, doc.documentElement, idiomorphOptions);
             handleNavigation(url);
             if (!isPopState) {
                 window.history.pushState({}, '', url);
                 const newUrl = new URL(url, window.location.origin);
-                currentPath = newUrl.pathname + newUrl.search;
+                currentPath = newUrl.pathname;
             }
         })
         .catch(error => {
@@ -124,6 +127,12 @@ document.addEventListener('click', event => {
     if (anchor && anchor.href && anchor.target !== '_blank') {
         const linkUrl = new URL(anchor.href);
         if (linkUrl.origin !== window.location.origin) {
+            return;
+        }
+
+        // If the href is the same as the current URL, do nothing.
+        if (linkUrl.href === window.location.href) {
+            event.preventDefault();
             return;
         }
 

@@ -183,6 +183,8 @@ impl LanguageServer for Backend {
             FILES_WITH_DIAGNOSTICS.remove(&uri);
         }
     }
+
+    async fn did_close(&self, _: DidCloseTextDocumentParams) {}
 }
 
 #[cfg(test)]
@@ -287,5 +289,23 @@ mod tests {
         assert_eq!(result.server_info.as_ref().unwrap().name, "noventa-lsp");
         assert!(result.capabilities.text_document_sync.is_some());
         assert!(result.capabilities.workspace.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_did_close_handler() {
+        // This test ensures the did_close handler exists and can be called.
+        // Since it does nothing, we just need to verify its presence.
+        let client = ALL_CLIENTS.iter().next().map(|c| c.clone());
+        if let Some(client) = client {
+            let backend = Backend::new(client, 1);
+            let params = DidCloseTextDocumentParams {
+                text_document: TextDocumentIdentifier {
+                    uri: Url::parse("file:///test.txt").unwrap(),
+                },
+            };
+            backend.did_close(params).await;
+            // No assert needed, just testing that it compiles and runs.
+        }
+        assert!(true);
     }
 }

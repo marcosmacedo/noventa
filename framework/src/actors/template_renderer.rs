@@ -427,7 +427,7 @@ impl TemplateRendererActor {
 
         if let Some(body_end_pos) = result.rfind("</body>") {
             let mut scripts = String::new();
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/morphdom-2.6.1-umd.min.js")));
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/idiomorph.min.js")));
             scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/frontend.js")));
             if self.dev_mode {
                 scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));

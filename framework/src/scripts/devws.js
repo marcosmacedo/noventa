@@ -63,8 +63,7 @@ function connect() {
 
                     } else {
                         // Fallback to full page replacement if containers aren't found
-                        morphdom(document.head, doc.head);
-                        morphdom(document.body, doc.body);
+                        Idiomorph.morph(document.documentElement, doc.documentElement, { restoreFocus: true });
                     }
                 })
                 .catch(error => console.error('Error fetching page for reload:', error));
