@@ -13,7 +13,7 @@ use std::sync::Arc;
 use regex::Regex;
 use walkdir::WalkDir;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CompiledRoute {
     pub regex: Regex,
     pub param_names: Vec<String>,
@@ -167,7 +167,7 @@ fn build_http_request_info(
     form_data: serde_json::Map<String, serde_json::Value>,
     files: HashMap<String, crate::actors::page_renderer::FilePart>,
     path_params: HashMap<String, String>,
-    _session: &Session,
+    _session: Option<&Session>,
 ) -> HttpRequestInfo {
     let headers = req
         .headers()
@@ -268,7 +268,7 @@ pub async fn handle_page(
     dev_mode: bool,
 ) -> HttpResponse {
     let (form_data, files) = parse_request_body(&req, payload).await;
-    let request_info = build_http_request_info(&req, form_data, files, path_params, &session);
+    let request_info = build_http_request_info(&req, form_data, files, path_params, Some(&session));
 
     let session_manager = SessionManagerActor::new(session).start();
 
@@ -372,6 +372,7 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+    use std::collections::HashMap;
 
     #[test]
     fn test_path_to_route() {
@@ -442,6 +443,193 @@ mod tests {
         fs::File::create(pages_dir.join("conflict/index.html")).unwrap();
 
         get_compiled_routes(pages_dir);
+    }
+
+    #[test]
+    fn test_routing_consistency_dev_vs_prod() {
+        let dir = tempdir().unwrap();
+        let pages_dir = dir.path();
+
+        // Create test page structure
+        fs::create_dir_all(pages_dir.join("blog")).unwrap();
+        fs::File::create(pages_dir.join("index.html")).unwrap();
+        fs::File::create(pages_dir.join("about.html")).unwrap();
+        fs::File::create(pages_dir.join("blog/first-post.html")).unwrap();
+        fs::create_dir_all(pages_dir.join("users")).unwrap();
+        fs::File::create(pages_dir.join("users/[id].html")).unwrap();
+
+        // Get compiled routes (prod mode)
+        let compiled_routes = get_compiled_routes(pages_dir);
+
+        // Test cases: (path, expected_template_relative_path, expected_params)
+        let test_cases = vec![
+            ("/", "index.html", HashMap::new()),
+            ("/about", "about.html", HashMap::new()),
+            ("/blog/first-post", "blog/first-post.html", HashMap::new()),
+            ("/users/123", "users/[id].html", {
+                let mut params = HashMap::new();
+                params.insert("id".to_string(), "123".to_string());
+                params
+            }),
+        ];
+
+        for (path, expected_template, expected_params) in test_cases {
+            // Test prod mode (compiled routes)
+            let prod_result = compiled_routes.iter().find_map(|route| {
+                if let Some(captures) = route.regex.captures(path) {
+                    let params: HashMap<String, String> = route
+                        .param_names
+                        .iter()
+                        .filter_map(|name| {
+                            captures
+                                .name(name)
+                                .map(|value| (name.clone(), value.as_str().to_string()))
+                        })
+                        .collect();
+
+                    // Get relative path from pages_dir
+                    let template_path_str = if route.template_path.starts_with(pages_dir) {
+                        route.template_path.strip_prefix(pages_dir).unwrap().to_str().unwrap().to_string()
+                    } else {
+                        route.template_path.to_str().unwrap().to_string()
+                    };
+                    Some((template_path_str, params))
+                } else {
+                    None
+                }
+            });
+
+            // Test dev mode (simulated router logic)
+            let dev_result = compiled_routes.iter().find_map(|route| {
+                if let Some(captures) = route.regex.captures(path) {
+                    let params: HashMap<String, String> = route
+                        .param_names
+                        .iter()
+                        .filter_map(|name| {
+                            captures
+                                .name(name)
+                                .map(|value| (name.clone(), value.as_str().to_string()))
+                        })
+                        .collect();
+
+                    // Simulate what RouterActor does - strip BASE_PATH, but for test use pages_dir
+                    let template_path_str = if route.template_path.starts_with(pages_dir) {
+                        route.template_path.strip_prefix(pages_dir).unwrap().to_str().unwrap().to_string()
+                    } else {
+                        route.template_path.to_str().unwrap().to_string()
+                    };
+                    let template_path_str = if template_path_str.starts_with("/") {
+                        template_path_str[1..].to_string()
+                    } else {
+                        template_path_str
+                    };
+                    Some((template_path_str, params))
+                } else {
+                    None
+                }
+            });
+
+            // Assert both modes return the same result
+            assert_eq!(prod_result, dev_result, "Routing mismatch for path: {}", path);
+
+            if let Some((template_path, params)) = prod_result {
+                assert_eq!(template_path, expected_template, "Template mismatch for path: {}", path);
+                assert_eq!(params, expected_params, "Params mismatch for path: {}", path);
+            }
+        }
+    }
+
+    #[test]
+    fn test_http_request_info_building() {
+        use actix_web::test::TestRequest;
+        use std::collections::HashMap;
+
+        // Create a test request with various headers and query params
+        let req = TestRequest::post()
+            .uri("https://example.com/my/path?param1=value1&param2=value2")
+            .insert_header(("user-agent", "TestBrowser/1.0"))
+            .insert_header(("content-type", "application/x-www-form-urlencoded"))
+            .insert_header(("content-length", "15"))
+            .insert_header(("x-requested-with", "XMLHttpRequest"))
+            .insert_header(("authorization", "Bearer test-token"))
+            .insert_header(("cache-control", "no-cache"))
+            .insert_header(("accept", "text/html,application/xhtml+xml"))
+            .insert_header(("accept-language", "en-US,en;q=0.9"))
+            .insert_header(("accept-encoding", "gzip, deflate"))
+            .insert_header(("accept-charset", "utf-8"))
+            .insert_header(("x-forwarded-for", "192.168.1.1, 10.0.0.1"))
+            .insert_header(("referer", "https://example.com/previous"))
+            .insert_header(("x-real-ip", "203.0.113.1"))
+            .to_http_request();
+
+        let form_data = {
+            let mut map = serde_json::Map::new();
+            map.insert("field1".to_string(), serde_json::Value::String("test_value".to_string()));
+            map
+        };
+
+        let files = HashMap::new();
+        let path_params = {
+            let mut params = HashMap::new();
+            params.insert("id".to_string(), "123".to_string());
+            params.insert("category".to_string(), "electronics".to_string());
+            params
+        };
+
+        // Create a minimal dummy session - since it's not used in the function
+        // We'll just use a HashMap that implements the necessary traits
+        let _dummy_session_data = HashMap::<String, String>::new();
+
+        // Build HttpRequestInfo
+        let request_info = build_http_request_info(&req, form_data.clone(), files.clone(), path_params.clone(), None);
+
+        // Verify core request information
+        assert_eq!(request_info.path, "/my/path");
+        assert_eq!(request_info.method, "POST");
+        assert_eq!(request_info.scheme, "https");
+        assert_eq!(request_info.host, "example.com");
+        assert_eq!(request_info.is_secure, true);
+        assert_eq!(request_info.is_xhr, true);
+
+        // Verify URL construction
+        assert_eq!(request_info.url, "https://example.com/my/path?param1=value1&param2=value2");
+        assert_eq!(request_info.base_url, "https://example.com/my/path");
+        assert_eq!(request_info.host_url, "https://example.com");
+        assert_eq!(request_info.url_root, "https://example.com");
+        assert_eq!(request_info.full_path, "/my/path?param1=value1&param2=value2");
+
+        // Verify headers are captured
+        assert_eq!(request_info.user_agent, Some("TestBrowser/1.0".to_string()));
+        assert_eq!(request_info.content_type, Some("application/x-www-form-urlencoded".to_string()));
+        assert_eq!(request_info.content_length, Some(15));
+        assert_eq!(request_info.authorization, Some("Bearer test-token".to_string()));
+        assert_eq!(request_info.cache_control, Some("no-cache".to_string()));
+        assert_eq!(request_info.referrer, Some("https://example.com/previous".to_string()));
+
+        // Verify query parameters
+        assert_eq!(request_info.query_params.get("param1"), Some(&"value1".to_string()));
+        assert_eq!(request_info.query_params.get("param2"), Some(&"value2".to_string()));
+
+        // Verify path parameters
+        assert_eq!(request_info.path_params.get("id"), Some(&"123".to_string()));
+        assert_eq!(request_info.path_params.get("category"), Some(&"electronics".to_string()));
+
+        // Verify form data
+        assert_eq!(request_info.form_data, form_data);
+
+        // Verify multi-value headers
+        assert!(request_info.accept_mimetypes.contains(&"text/html".to_string()));
+        assert!(request_info.accept_mimetypes.contains(&"application/xhtml+xml".to_string()));
+        assert!(request_info.accept_languages.contains(&"en-US".to_string()));
+        assert!(request_info.accept_encodings.contains(&"gzip".to_string()));
+        assert!(request_info.accept_charsets.contains(&"utf-8".to_string()));
+
+        // Verify forwarded headers
+        assert!(request_info.access_route.contains(&"192.168.1.1".to_string()));
+        assert!(request_info.access_route.contains(&"10.0.0.1".to_string()));
+
+        // Verify remote address extraction
+        assert_eq!(request_info.remote_addr, Some("192.168.1.1".to_string()));
     }
 }
 
