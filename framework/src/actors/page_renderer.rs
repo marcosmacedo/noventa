@@ -116,7 +116,7 @@ impl Handler<RenderMessage> for PageRendererActor {
 
             let start_time = std::time::Instant::now();
             let future = template_renderer.send(render_msg);
-            let result = timeout(Duration::from_secs(5), future).await;
+            let result = timeout(Duration::from_secs(60), future).await;
             let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
             health_actor.do_send(ReportTemplateLatency(duration_ms));
 

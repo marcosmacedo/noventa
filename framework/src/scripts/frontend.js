@@ -98,7 +98,8 @@ function handleRequest(url, options, isPopState = false) {
             handleNavigation(url);
             if (!isPopState) {
                 window.history.pushState({}, '', url);
-                currentPath = new URL(url).pathname + new URL(url).search;
+                const newUrl = new URL(url, window.location.origin);
+                currentPath = newUrl.pathname + newUrl.search;
             }
         })
         .catch(error => {

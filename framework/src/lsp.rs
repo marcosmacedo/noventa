@@ -161,6 +161,9 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
+    async fn did_open(&self, _: DidOpenTextDocumentParams) {
+    }
+
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
         if FILES_WITH_DIAGNOSTICS.contains_key(&uri) {

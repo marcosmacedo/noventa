@@ -48,7 +48,7 @@ use clap::Parser;
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-    #[clap(long, global = true)]
+    #[clap(long, global = true, hide = true)]
     starter: Option<String>,
 }
 
@@ -134,7 +134,7 @@ fn create_new_project(starter_path: Option<&str>, no_input: bool) -> std::io::Re
 }
 
 async fn run_dev_server(dev_mode: bool) -> std::io::Result<()> {
-    let log_level = config::CONFIG.log_level.as_deref().unwrap_or(if dev_mode { "debug" } else { "info" });
+    let log_level = config::CONFIG.log_level.as_deref().unwrap_or(if dev_mode { "info" } else { "warn" });
     logger::init_logger(log_level);
     // Inform the errors module about the runtime dev_mode value so it can
     // render debug pages consistently when errors occur outside of request
