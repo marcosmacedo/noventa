@@ -357,7 +357,13 @@ pub async fn handle_page_native(
     template_path: web::Data<String>,
 ) -> HttpResponse {
     let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
-    let template_path_str = template_path.get_ref().clone();
+    let full_template_path = template_path.get_ref().clone();
+    let template_path_str = std::path::Path::new(&full_template_path).strip_prefix(&*crate::config::BASE_PATH).unwrap_or(std::path::Path::new(&full_template_path)).to_str().unwrap().to_string();
+    let template_path_str = if template_path_str.starts_with("/") {
+        template_path_str[1..].to_string()
+    } else {
+        template_path_str
+    };
     handle_page(req, payload, renderer, session, template_path_str, path_params.into_inner(), dev_mode).await
 }
 

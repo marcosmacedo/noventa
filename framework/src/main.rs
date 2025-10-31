@@ -86,14 +86,18 @@ async fn main() -> std::io::Result<()> {
     };
 
     match command {
-        Some(Commands::Dev) | Some(Commands::Serve) => {
-            let server = run_dev_server(dev_mode).await?;
+        Some(Commands::Dev) => {
+            let server = run_dev_server().await?;
+            server.await
+        }
+        Some(Commands::Serve) => {
+            let server = run_prod_server().await?;
             server.await
         }
         Some(Commands::Disco) => disco::server::run_disco_server().await,
         Some(Commands::New { no_input }) => create_new_project(cli.starter.as_deref(), *no_input),
         Some(Commands::Ssg { path }) => {
-            let srv = run_dev_server(true).await?;
+            let srv = run_dev_server().await?;
             let srv_handle = srv.handle();
             let ssg_actor = SSGActor::new().start();
 
@@ -156,204 +160,46 @@ fn create_new_project(starter_path: Option<&str>, no_input: bool) -> std::io::Re
     Ok(())
 }
 
-async fn run_dev_server(dev_mode: bool) -> std::io::Result<actix_web::dev::Server> {
-    let log_level = config::CONFIG.log_level.as_deref().unwrap_or(if dev_mode { "info" } else { "warn" });
-    logger::init_logger(log_level);
-    // Inform the errors module about the runtime dev_mode value so it can
-    // render debug pages consistently when errors occur outside of request
-    // handlers that already receive dev_mode.
-
-    pyo3::Python::attach(|py| {
-        let sys = py.import("sys").unwrap();
-        let path = sys.getattr("path").unwrap();
-        let path_list = path.downcast::<pyo3::types::PyList>().unwrap();
-
-        // FIXME: Needs to point to the installation path
-        if path_list.append("/Users/marcos/Documents/noventa/framework").is_err() {
-            log::error!("Failed to add framework to sys.path");
-        }
-        Ok::<(), pyo3::PyErr>(())
-    }).unwrap();
-
-    // Define the paths to the web directories
-    let components_dir = Path::new("./components");
-
-    // Scan for components
-    let components = components::scan_components(components_dir)?;
-    log::debug!("Found {} components. Ready to roll!", components.len());
-
-    // --- Core Allocation ---
-    // We are manually partitioning the CPU cores to ensure predictable performance.
-    let total_cores = num_cpus::get();
-
-    // Allocate cores for CPU-bound sync actors.
-    // These run in dedicated thread pools (SyncArbiters).
-    let (python_threads, template_renderer_threads, actix_web_threads) =
-        if let Some(core_config) = &config::CONFIG.core_allocation {
-            let python_threads = core_config.python_threads.unwrap_or((total_cores / 2).max(1));
-            let template_renderer_threads = core_config.template_renderer_threads.unwrap_or((total_cores / 2).max(1));
-            let actix_web_threads = core_config.actix_web_threads.unwrap_or((total_cores - python_threads - template_renderer_threads).max(1));
-            (python_threads, template_renderer_threads, actix_web_threads)
-        } else {
-            let python_threads = (total_cores / 2).max(1);
-            let template_renderer_threads = (total_cores / 2).max(1);
-            let actix_web_threads = (total_cores - python_threads - template_renderer_threads).max(1);
-            (python_threads, template_renderer_threads, actix_web_threads)
-        };
-
-    log::debug!(
-        "Core allocation: Total={}, Actix Web={}, Python={}, Template Renderer={}. Starting up the engines!",
-        total_cores,
+async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
+    let (
+        health_actor_addr,
+        renderer_data,
+        interpreters_addr,
+        template_renderer_addr,
         actix_web_threads,
-        python_threads,
-        template_renderer_threads
-    );
+        runtime_store,
+        runtime_secret,
+    ) = configure_server(true).await?;
 
-    // --- Actor Initialization ---
-
-    let health_actor_addr = HealthActor::new().start();
-
-    // PythonInterpreterActor runs in a SyncArbiter with a dedicated thread pool.
-    let interpreters_addr = SyncArbiter::start(python_threads, move || PythonInterpreterActor::new(dev_mode));
-
-    // TemplateRendererActor is also CPU-bound and runs in its own SyncArbiter.
-    let value = health_actor_addr.clone();
-    let components_clone_for_template_renderer = components.clone();
-    let interpreters_addr_clone = interpreters_addr.clone();
-    let template_renderer_addr = SyncArbiter::start(template_renderer_threads, move || {
-        TemplateRendererActor::new(
-            interpreters_addr_clone.clone(),
-            value.clone(),
-            dev_mode,
-            components_clone_for_template_renderer.clone(),
-        )
-    });
-
-    // PageRendererActor is a lightweight coordinator, running as a regular async actor.
-    let page_renderer_addr = PageRendererActor::new(template_renderer_addr.clone(), health_actor_addr.clone()).start();
-
-    // Wrap the PageRendererActor with the LoadSheddingActor.
-    let load_shedding_actor =
-        LoadSheddingActor::new(page_renderer_addr.clone(), health_actor_addr.clone()).start();
-
-    let renderer_data: web::Data<Recipient<RenderMessage>> = if config::CONFIG.adaptive_shedding.unwrap_or(true) {
-        log::debug!("Adaptive load shedding is enabled. The server will automatically adjust to traffic spikes.");
-        web::Data::new(load_shedding_actor.recipient())
-    } else {
-        log::debug!("Adaptive load shedding is disabled. The server will handle all requests without throttling.");
-        web::Data::new(page_renderer_addr.recipient())
-    };
-
-    let router_addr = if dev_mode {
-        Some(RouterActor::new().start())
-    } else {
-        None
-    };
-
-    let mut ws_server: Option<Addr<WsServer>> = None;
-    let mut _watcher: Option<Addr<FileWatcherActor>> = None;
-    let mut _lsp_actor: Option<Addr<lsp::LspActor>> = None;
-
-    if dev_mode {
-        let server = WsServer::new().start();
-        _watcher = Some(FileWatcherActor::new(server.clone(), router_addr.as_ref().unwrap().clone(), template_renderer_addr.clone(), interpreters_addr.clone()).start());
-        ws_server = Some(server);
-
-        _lsp_actor = Some(lsp::LspActor.start());
-    }
-
-    // Prepare a runtime session store and secret key. If session config is missing,
-    // we fall back to a default cookie store and a fixed key. This keeps the
-    // middleware type consistent across configurations.
-    use std::sync::Arc as StdArc;
-    let (runtime_store, runtime_secret): (session::RuntimeSessionStore, Key) = if let Some(session_config) = &config::CONFIG.session {
-        let secret_key_bytes = session_config.secret_key.as_bytes();
-        let secret_key = match Key::try_from(secret_key_bytes) {
-            Ok(key) => key,
-            Err(e) => {
-                println!("Your `secret_key` in `config.yaml` is not long enough. It needs to be at least 64 characters long for security. Please generate a new, longer key.");
-                println!("Details: {}", e);
-                std::process::exit(1);
-            }
-        };
-        let store = match session_config.backend {
-            config::SessionBackend::Cookie => {
-                session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()))
-            }
-            config::SessionBackend::Memory => {
-                session::RuntimeSessionStore::InMemory(session::InMemoryBackend::new())
-            }
-            config::SessionBackend::Redis => {
-                let redis_url = session_config.redis_url.as_ref().expect("redis_url is required for redis session backend");
-                let redis_pool_size = session_config.redis_pool_size.unwrap_or(10) as usize;
-                // Create config from URL and set pool max size
-                let mut redis_cfg = Config::from_url(redis_url);
-                redis_cfg.pool = Some(deadpool_redis::PoolConfig {
-                    max_size: redis_pool_size,
-                    ..Default::default()
-                });
-                let redis_pool = redis_cfg.create_pool(Some(Runtime::Tokio1)).expect("Failed to create redis pool");
-                let store = RedisSessionStore::new_pooled(redis_pool).await.expect("Failed to create Redis session store");
-                session::RuntimeSessionStore::Redis(store)
-            }
-        };
-        (store, secret_key)
-    } else {
-        // Default fallback if no session config is provided
-        let secret_key = Key::from(&[0u8; 64]); // Use a secure, random key in production
-        log::warn!("Heads up! No session key was found in your `config.yaml`. We're using a temporary key for now, but for production, you'll want to set a secure `secret_key`.");
-        let store = session::RuntimeSessionStore::Cookie(StdArc::new(CookieSessionStore::default()));
-        (store, secret_key)
-    };
+    let router_addr = RouterActor::new().start();
+    let ws_server = WsServer::new().start();
+    let _watcher = Some(FileWatcherActor::new(
+        ws_server.clone(),
+        router_addr.clone(),
+        template_renderer_addr.clone(),
+        interpreters_addr.clone(),
+    )
+    .start());
+    let _lsp_actor = Some(lsp::LspActor.start());
 
     let server = HttpServer::new(move || {
         let mut app = App::new()
             .wrap(actix_web::middleware::Compress::default())
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
-            .app_data(web::Data::new(dev_mode))
-            .route("/health", web::get().to(routing::health_check));
-
-        if dev_mode {
-            app = app
-                .app_data(web::Data::new(router_addr.as_ref().unwrap().clone()))
-                .app_data(web::Data::new(ws_server.as_ref().unwrap().clone()))
-                .route("/devws", web::get().to(dev_ws))
-                .default_service(web::route().to(routing::dynamic_route_handler));
-        } else {
-            let pages_dir = Path::new("./pages");
-            let routes = routing::get_compiled_routes(pages_dir);
-            for route in routes {
-                let template_path = route.template_path.to_str().unwrap().to_string();
-                let route_pattern = route.regex.to_string().trim_start_matches('^').trim_end_matches('$').to_string();
-                app = app.route(
-                    &route_pattern,
-                    web::get().to(
-                        move |req: HttpRequest,
-                              payload: web::Payload,
-                              renderer: web::Data<Recipient<RenderMessage>>,
-                              session: Session,
-                              path_params: web::Path<std::collections::HashMap<String, String>>| {
-                            let template_path_clone = template_path.clone();
-                            async move {
-                                routing::handle_page_native(
-                                    req,
-                                    payload,
-                                    renderer,
-                                    session,
-                                    path_params,
-                                    web::Data::new(template_path_clone),
-                                )
-                                .await
-                            }
-                        },
-                    ),
-                );
-            }
-        }
+            .app_data(web::Data::new(true))
+            .route("/health", web::get().to(routing::health_check))
+            .app_data(web::Data::new(router_addr.clone()))
+            .app_data(web::Data::new(ws_server.clone()))
+            .route("/devws", web::get().to(dev_ws))
+            .default_service(web::route().to(routing::dynamic_route_handler));
 
         if let Some(static_path_str) = &config::CONFIG.static_path {
-            let static_path = std::path::PathBuf::from(static_path_str).clean();
+            let static_path = if static_path_str.starts_with('/') {
+                std::path::PathBuf::from(static_path_str).clean()
+            } else {
+                config::BASE_PATH.join(static_path_str).clean()
+            };
             let url_prefix = config::CONFIG
                 .static_url_prefix
                 .as_deref()
@@ -361,42 +207,67 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<actix_web::dev::Serve
             app = app.service(Files::new(url_prefix, static_path));
         }
 
-        // Always wrap with the session middleware using the runtime-configured store.
         app.wrap(
             SessionMiddleware::builder(runtime_store.clone(), runtime_secret.clone())
                 .cookie_name(
-                    config::CONFIG.session.as_ref()
+                    config::CONFIG
+                        .session
+                        .as_ref()
                         .map(|s| s.cookie_name.clone())
                         .unwrap_or_else(|| "noventa_session".to_string()),
                 )
-                .cookie_secure(config::CONFIG.session.as_ref().map(|s| s.cookie_secure).unwrap_or(false))
-                .cookie_http_only(config::CONFIG.session.as_ref().map(|s| s.cookie_http_only).unwrap_or(true))
+                .cookie_secure(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .map(|s| s.cookie_secure)
+                        .unwrap_or(false),
+                )
+                .cookie_http_only(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .map(|s| s.cookie_http_only)
+                        .unwrap_or(true),
+                )
                 .cookie_path(
-                    config::CONFIG.session.as_ref()
+                    config::CONFIG
+                        .session
+                        .as_ref()
                         .map(|s| s.cookie_path.clone())
                         .unwrap_or_else(|| "/".to_string()),
                 )
                 .cookie_same_site(SameSite::Lax)
                 .cookie_domain(
-                    config::CONFIG.session.as_ref()
-                        .and_then(|s| s.cookie_domain.clone())
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .and_then(|s| s.cookie_domain.clone()),
                 )
                 .session_lifecycle(
                     PersistentSession::default().session_ttl(
-                        config::CONFIG.session.as_ref()
-                            .and_then(|s| s.cookie_max_age.map(actix_web::cookie::time::Duration::seconds))
-                            .unwrap_or(actix_web::cookie::time::Duration::days(7))
-                    )
+                        config::CONFIG
+                            .session
+                            .as_ref()
+                            .and_then(|s| {
+                                s.cookie_max_age
+                                    .map(actix_web::cookie::time::Duration::seconds)
+                            })
+                            .unwrap_or(actix_web::cookie::time::Duration::days(7)),
+                    ),
                 )
                 .build(),
         )
     })
-    .workers(actix_web_threads) // Set the number of web server worker threads.
+    .workers(actix_web_threads)
     .keep_alive(std::time::Duration::from_secs(30))
     .bind({
         let port = config::CONFIG.port.unwrap_or(8080);
         if port > 65535 {
-            println!("Error: Port number {} is too high. It must be between 0 and 65535.", port);
+            println!(
+                "Error: Port number {} is too high. It must be between 0 and 65535.",
+                port
+            );
             std::process::exit(1);
         }
         (
@@ -418,14 +289,329 @@ async fn run_dev_server(dev_mode: bool) -> std::io::Result<actix_web::dev::Serve
     logger::print_banner(
         config::CONFIG.server_address.as_deref().unwrap_or("127.0.0.1"),
         config::CONFIG.port.unwrap_or(8080) as u16,
-        dev_mode
+        true,
     );
 
     Ok(server.run())
 }
 
+async fn configure_server(
+    dev_mode: bool,
+) -> std::io::Result<(
+    Addr<HealthActor>,
+    web::Data<Recipient<RenderMessage>>,
+    Addr<PythonInterpreterActor>,
+    Addr<TemplateRendererActor>,
+    usize,
+    session::RuntimeSessionStore,
+    Key,
+)> {
+    let log_level = config::CONFIG
+        .log_level
+        .as_deref()
+        .unwrap_or(if dev_mode { "info" } else { "warn" });
+    logger::init_logger(log_level);
+
+    pyo3::Python::attach(|py| {
+        let sys = py.import("sys").unwrap();
+        let path = sys.getattr("path").unwrap();
+        let path_list = path.downcast::<pyo3::types::PyList>().unwrap();
+
+        if path_list
+            .append("/Users/marcos/Documents/noventa/framework")
+            .is_err()
+        {
+            log::error!("Failed to add framework to sys.path");
+        }
+        Ok::<(), pyo3::PyErr>(())
+    })
+    .unwrap();
+
+    let components_dir = Path::new("./components");
+    let components = components::scan_components(components_dir)?;
+    log::debug!("Found {} components. Ready to roll!", components.len());
+
+    let total_cores = num_cpus::get();
+    let (python_threads, template_renderer_threads, actix_web_threads) =
+        if let Some(core_config) = &config::CONFIG.core_allocation {
+            let python_threads = core_config.python_threads.unwrap_or((total_cores / 2).max(1));
+            let template_renderer_threads = core_config
+                .template_renderer_threads
+                .unwrap_or((total_cores / 2).max(1));
+            let actix_web_threads = core_config.actix_web_threads.unwrap_or(
+                (total_cores - python_threads - template_renderer_threads).max(1),
+            );
+            (
+                python_threads,
+                template_renderer_threads,
+                actix_web_threads,
+            )
+        } else {
+            let python_threads = (total_cores / 2).max(1);
+            let template_renderer_threads = (total_cores / 2).max(1);
+            let actix_web_threads =
+                (total_cores - python_threads - template_renderer_threads).max(1);
+            (
+                python_threads,
+                template_renderer_threads,
+                actix_web_threads,
+            )
+        };
+
+    log::debug!(
+        "Core allocation: Total={}, Actix Web={}, Python={}, Template Renderer={}. Starting up the engines!",
+        total_cores,
+        actix_web_threads,
+        python_threads,
+        template_renderer_threads
+    );
+
+    let health_actor_addr = HealthActor::new().start();
+    let interpreters_addr =
+        SyncArbiter::start(python_threads, move || PythonInterpreterActor::new(dev_mode));
+    let value = health_actor_addr.clone();
+    let components_clone_for_template_renderer = components.clone();
+    let interpreters_addr_clone = interpreters_addr.clone();
+    let template_renderer_addr = SyncArbiter::start(template_renderer_threads, move || {
+        TemplateRendererActor::new(
+            interpreters_addr_clone.clone(),
+            value.clone(),
+            dev_mode,
+            components_clone_for_template_renderer.clone(),
+        )
+    });
+
+    let page_renderer_addr =
+        PageRendererActor::new(template_renderer_addr.clone(), health_actor_addr.clone()).start();
+    let load_shedding_actor =
+        LoadSheddingActor::new(page_renderer_addr.clone(), health_actor_addr.clone()).start();
+
+    let renderer_data: web::Data<Recipient<RenderMessage>> =
+        if config::CONFIG.adaptive_shedding.unwrap_or(true) {
+            log::debug!("Adaptive load shedding is enabled. The server will automatically adjust to traffic spikes.");
+            web::Data::new(load_shedding_actor.recipient())
+        } else {
+            log::debug!("Adaptive load shedding is disabled. The server will handle all requests without throttling.");
+            web::Data::new(page_renderer_addr.recipient())
+        };
+
+    use std::sync::Arc as StdArc;
+    let (runtime_store, runtime_secret): (session::RuntimeSessionStore, Key) =
+        if let Some(session_config) = &config::CONFIG.session {
+            let secret_key_bytes = session_config.secret_key.as_bytes();
+            let secret_key = match Key::try_from(secret_key_bytes) {
+                Ok(key) => key,
+                Err(e) => {
+                    println!("Your `secret_key` in `config.yaml` is not long enough. It needs to be at least 64 characters long for security. Please generate a new, longer key.");
+                    println!("Details: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let store = match session_config.backend {
+                config::SessionBackend::Cookie => session::RuntimeSessionStore::Cookie(
+                    StdArc::new(CookieSessionStore::default()),
+                ),
+                config::SessionBackend::Memory => {
+                    session::RuntimeSessionStore::InMemory(session::InMemoryBackend::new())
+                }
+                config::SessionBackend::Redis => {
+                    let redis_url = session_config
+                        .redis_url
+                        .as_ref()
+                        .expect("redis_url is required for redis session backend");
+                    let redis_pool_size = session_config.redis_pool_size.unwrap_or(10) as usize;
+                    let mut redis_cfg = Config::from_url(redis_url);
+                    redis_cfg.pool = Some(deadpool_redis::PoolConfig {
+                        max_size: redis_pool_size,
+                        ..Default::default()
+                    });
+                    let redis_pool = redis_cfg
+                        .create_pool(Some(Runtime::Tokio1))
+                        .expect("Failed to create redis pool");
+                    let store = RedisSessionStore::new_pooled(redis_pool)
+                        .await
+                        .expect("Failed to create Redis session store");
+                    session::RuntimeSessionStore::Redis(store)
+                }
+            };
+            (store, secret_key)
+        } else {
+            let secret_key = Key::from(&[0u8; 64]);
+            log::warn!("Heads up! No session key was found in your `config.yaml`. We're using a temporary key for now, but for production, you'll want to set a secure `secret_key`.");
+            let store = session::RuntimeSessionStore::Cookie(StdArc::new(
+                CookieSessionStore::default(),
+            ));
+            (store, secret_key)
+        };
+
+    Ok((
+        health_actor_addr,
+        renderer_data,
+        interpreters_addr,
+        template_renderer_addr,
+        actix_web_threads,
+        runtime_store,
+        runtime_secret,
+    ))
+}
+
 async fn dev_ws(req: HttpRequest, stream: web::Payload, srv: web::Data<Addr<WsServer>>) -> Result<actix_web::HttpResponse, Error> {
     ws::start(DevWebSocket::new(srv.get_ref().clone()), &req, stream)
+}
+
+async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
+    let (
+        health_actor_addr,
+        renderer_data,
+        _,
+        _,
+        actix_web_threads,
+        runtime_store,
+        runtime_secret,
+    ) = configure_server(false).await?;
+
+    let server = HttpServer::new(move || {
+        let mut app = App::new()
+            .wrap(actix_web::middleware::Compress::default())
+            .app_data(renderer_data.clone())
+            .app_data(web::Data::new(health_actor_addr.clone()))
+            .app_data(web::Data::new(false))
+            .route("/health", web::get().to(routing::health_check));
+
+        let pages_dir = config::BASE_PATH.join("pages");
+        let routes = routing::get_compiled_routes(&pages_dir);
+        for route in routes {
+            let template_path = route.template_path.to_str().unwrap().to_string();
+            let route_pattern = route
+                .regex
+                .to_string()
+                .trim_start_matches('^')
+                .trim_end_matches('$')
+                .to_string();
+            app = app.route(
+                &route_pattern,
+                web::route().to(
+                    move |req: HttpRequest,
+                          payload: web::Payload,
+                          renderer: web::Data<Recipient<RenderMessage>>,
+                          session: Session,
+                          path_params: web::Path<std::collections::HashMap<String, String>>| {
+                        let template_path_clone = template_path.clone();
+                        async move {
+                            routing::handle_page_native(
+                                req,
+                                payload,
+                                renderer,
+                                session,
+                                path_params,
+                                web::Data::new(template_path_clone),
+                            )
+                            .await
+                        }
+                    },
+                ),
+            );
+        }
+
+        if let Some(static_path_str) = &config::CONFIG.static_path {
+            let static_path = if static_path_str.starts_with('/') {
+                std::path::PathBuf::from(static_path_str).clean()
+            } else {
+                config::BASE_PATH.join(static_path_str).clean()
+            };
+            let url_prefix = config::CONFIG
+                .static_url_prefix
+                .as_deref()
+                .unwrap_or("/static");
+            app = app.service(Files::new(url_prefix, static_path));
+        }
+
+        app.wrap(
+            SessionMiddleware::builder(runtime_store.clone(), runtime_secret.clone())
+                .cookie_name(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .map(|s| s.cookie_name.clone())
+                        .unwrap_or_else(|| "noventa_session".to_string()),
+                )
+                .cookie_secure(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .map(|s| s.cookie_secure)
+                        .unwrap_or(false),
+                )
+                .cookie_http_only(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .map(|s| s.cookie_http_only)
+                        .unwrap_or(true),
+                )
+                .cookie_path(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .map(|s| s.cookie_path.clone())
+                        .unwrap_or_else(|| "/".to_string()),
+                )
+                .cookie_same_site(SameSite::Lax)
+                .cookie_domain(
+                    config::CONFIG
+                        .session
+                        .as_ref()
+                        .and_then(|s| s.cookie_domain.clone()),
+                )
+                .session_lifecycle(
+                    PersistentSession::default().session_ttl(
+                        config::CONFIG
+                            .session
+                            .as_ref()
+                            .and_then(|s| {
+                                s.cookie_max_age
+                                    .map(actix_web::cookie::time::Duration::seconds)
+                            })
+                            .unwrap_or(actix_web::cookie::time::Duration::days(7)),
+                    ),
+                )
+                .build(),
+        )
+    })
+    .workers(actix_web_threads)
+    .keep_alive(std::time::Duration::from_secs(30))
+    .bind({
+        let port = config::CONFIG.port.unwrap_or(8080);
+        if port > 65535 {
+            println!(
+                "Error: Port number {} is too high. It must be between 0 and 65535.",
+                port
+            );
+            std::process::exit(1);
+        }
+        (
+            config::CONFIG.server_address.as_deref().unwrap_or("127.0.0.1"),
+            port as u16,
+        )
+    })
+    .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AddrInUse {
+            let port = config::CONFIG.port.unwrap_or(8080) as u16;
+            println!("Error: The port {} is already in use.", port);
+            println!("Another application is likely running on this port.");
+            println!("Please stop the other application or choose a different port.");
+            std::process::exit(1);
+        }
+        e
+    })?;
+
+    logger::print_banner(
+        config::CONFIG.server_address.as_deref().unwrap_or("127.0.0.1"),
+        config::CONFIG.port.unwrap_or(8080) as u16,
+        false,
+    );
+
+    Ok(server.run())
 }
 
 

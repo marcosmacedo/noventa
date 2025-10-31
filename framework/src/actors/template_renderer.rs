@@ -3,14 +3,15 @@ use crate::actors::interpreter::{ExecuteFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::{HttpRequestInfo, RenderOutput};
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
+use crate::config;
 use crate::errors::{ComponentInfo, DetailedError, ErrorSource};
 use actix::prelude::*;
-use std::error::Error;
 use minijinja::{Environment, State, value::Kwargs, Value};
-use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
 use regex::Regex;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::error::Error;
+use std::sync::{Arc, RwLock};
 
 static FORM_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(<form[^>]*>)").unwrap());
 static COMPONENT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\{\{\s*component\s*\(([^)]+)\)\s*\}\}").unwrap());
@@ -41,7 +42,7 @@ impl TemplateRendererActor {
     ) -> Self {
         let mut env = Environment::new();
         minijinja_contrib::add_to_environment(&mut env);
-        env.set_loader(minijinja::path_loader("."));
+        env.set_loader(minijinja::path_loader(config::BASE_PATH.to_str().unwrap()));
 
         Self {
             env: Arc::new(env),
