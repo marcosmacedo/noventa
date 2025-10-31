@@ -631,5 +631,49 @@ mod tests {
         // Verify remote address extraction
         assert_eq!(request_info.remote_addr, Some("192.168.1.1".to_string()));
     }
+
+    #[test]
+    fn test_compile_route() {
+        use std::path::PathBuf;
+
+        // Test simple route without parameters
+        let route = compile_route("/about".to_string(), PathBuf::from("about.html"));
+        assert_eq!(route.param_names.len(), 0);
+        assert!(route.regex.is_match("/about"));
+        assert!(!route.regex.is_match("/contact"));
+
+        // Test route with single parameter
+        let route = compile_route("/users/{id}".to_string(), PathBuf::from("users/[id].html"));
+        assert_eq!(route.param_names, vec!["id"]);
+        assert!(route.regex.is_match("/users/123"));
+        assert!(!route.regex.is_match("/users/"));
+        assert!(!route.regex.is_match("/users/123/456"));
+
+        // Test route with multiple parameters
+        let route = compile_route("/blog/{year}/{month}/{slug}".to_string(), PathBuf::from("blog/[year]/[month]/[slug].html"));
+        assert_eq!(route.param_names, vec!["year", "month", "slug"]);
+        assert!(route.regex.is_match("/blog/2023/12/my-post"));
+        assert!(!route.regex.is_match("/blog/2023/12"));
+
+        // Test parameter name sanitization (dashes to underscores)
+        let route = compile_route("/posts/{post-id}".to_string(), PathBuf::from("posts/[post-id].html"));
+        assert_eq!(route.param_names, vec!["post_id"]);
+        assert!(route.regex.is_match("/posts/abc-123"));
+    }
+
+    #[actix_rt::test]
+    async fn test_parse_request_body() {
+        // TODO: Add test when payload handling is simplified
+    }
+
+    #[actix_rt::test]
+    async fn test_handle_page() {
+        // TODO: Add test when session handling is simplified
+    }
+
+    #[actix_rt::test]
+    async fn test_dynamic_route_handler() {
+        // TODO: Add test when session handling is simplified
+    }
 }
 

@@ -1,4 +1,5 @@
-use crate::errors::{DetailedError, ERROR_CHANNEL};
+use crate::errors::{DetailedError, ERROR_CHANNEL, ErrorSource};
+use crate::actors::interpreter::PythonError;
 use minijinja::Environment;
 use once_cell::sync::Lazy;
 
@@ -184,5 +185,74 @@ fn add_marker_and_scripts(rendered: &mut String) {
         rendered.insert_str(body_end_pos, &format!("\n{}\n{}\n", morphdom_script, devws_script));
     } else {
         rendered.push_str(&marker);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::{DetailedError, ERROR_CHANNEL, ErrorSource};
+    use crate::actors::interpreter::PythonError;
+
+    #[test]
+    fn test_render_production_error() {
+        let error = DetailedError::default();
+        let result = render_production_error(&error);
+        assert_eq!(result, "<h1>Internal Server Error</h1><p>An unexpected error occurred.</p>");
+    }
+
+    #[test]
+    fn test_add_marker_and_scripts_with_body() {
+        let mut html = "<html><body>Hello</body></html>".to_string();
+        add_marker_and_scripts(&mut html);
+        assert!(html.contains("<script>"));
+        assert!(html.contains("morphdom"));
+        assert!(html.contains("devws"));
+    }
+
+    #[test]
+    fn test_add_marker_and_scripts_without_body() {
+        let mut html = "<html><div>Hello</div></html>".to_string();
+        add_marker_and_scripts(&mut html);
+        assert!(html.contains("<!-- debug_rendered:"));
+    }
+
+    #[test]
+    fn test_render_structured_debug_error_basic() {
+        let error = DetailedError {
+            message: "Test error".to_string(),
+            file_path: "test.rs".to_string(),
+            line: 10,
+            column: 5,
+            ..Default::default()
+        };
+        let result = render_structured_debug_error(&error);
+        assert!(result.contains("Error Details"));
+        assert!(result.contains("<script>"));
+    }
+
+    #[test]
+    fn test_render_structured_debug_error_with_python_error() {
+        let python_error = PythonError {
+            message: "Python error".to_string(),
+            traceback: "trace".to_string(),
+            line_number: Some(5),
+            column_number: Some(10),
+            end_line_number: Some(5),
+            end_column_number: Some(20),
+            filename: Some("test.py".to_string()),
+            source_code: Some("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10".to_string()),
+        };
+        let error = DetailedError {
+            message: "Test error".to_string(),
+            file_path: "test.py".to_string(),
+            line: 5,
+            column: 10,
+            error_source: Some(ErrorSource::Python(python_error)),
+            ..Default::default()
+        };
+        let result = render_structured_debug_error(&error);
+        assert!(result.contains("Python Error"));
+        assert!(result.contains("line5"));
     }
 }

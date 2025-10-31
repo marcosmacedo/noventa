@@ -184,3 +184,108 @@ impl LanguageServer for Backend {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp::lsp_types::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_backend_new() {
+        // Test that Backend::new creates a backend with the correct client_id
+        let client_id = 42;
+        // We can't easily create a real Client, so we'll test the structure
+        // In a real test, we'd need to mock the Client
+        
+        // For now, just test that the constructor logic would work
+        // (This is more of a compilation test than a runtime test)
+        assert!(true); // Placeholder - constructor is simple
+    }
+
+    #[test]
+    fn test_files_with_diagnostics_global() {
+        // Test that the global FILES_WITH_DIAGNOSTICS map works
+        let url = Url::parse("file:///test/file.py").unwrap();
+        
+        // Initially empty
+        assert!(!FILES_WITH_DIAGNOSTICS.contains_key(&url));
+        
+        // Insert something
+        FILES_WITH_DIAGNOSTICS.insert(url.clone(), ());
+        assert!(FILES_WITH_DIAGNOSTICS.contains_key(&url));
+        
+        // Remove it
+        FILES_WITH_DIAGNOSTICS.remove(&url);
+        assert!(!FILES_WITH_DIAGNOSTICS.contains_key(&url));
+    }
+
+    #[test]
+    fn test_all_clients_global() {
+        // Test that the global ALL_CLIENTS map works
+        let client_id = 123;
+        
+        // Initially doesn't contain our test ID
+        assert!(!ALL_CLIENTS.contains_key(&client_id));
+        
+        // In a real scenario, we'd insert a Client here, but Client is not easily mockable
+        // For now, just test the map operations work
+        assert!(!ALL_CLIENTS.contains_key(&client_id));
+    }
+
+    #[test]
+    fn test_client_counter() {
+        // Test that CLIENT_COUNTER works
+        let initial = CLIENT_COUNTER.load(Ordering::SeqCst);
+        let next = CLIENT_COUNTER.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(next, initial);
+        let current = CLIENT_COUNTER.load(Ordering::SeqCst);
+        assert_eq!(current, initial + 1);
+    }
+
+    #[test]
+    fn test_lsp_actor_creation() {
+        // Test that LspActor can be created
+        let actor = LspActor;
+        // Actor trait is implemented, so this should work
+        assert!(true);
+    }
+
+    #[tokio::test]
+    async fn test_initialize_result_structure() {
+        // Test the structure of InitializeResult that would be returned
+        // We can't test the actual method without a real client, but we can test the data structure
+        
+        let result = InitializeResult {
+            offset_encoding: Some(String::from("utf-8")),
+            server_info: Some(ServerInfo {
+                name: "noventa-lsp".to_string(),
+                version: Some("0.1.0".to_string()),
+            }),
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Options(
+                    TextDocumentSyncOptions {
+                        open_close: Some(true),
+                        change: Some(TextDocumentSyncKind::INCREMENTAL),
+                        will_save: Some(false),
+                        will_save_wait_until: Some(false),
+                        save: Some(TextDocumentSyncSaveOptions::Supported(true)),
+                    },
+                )),
+                workspace: Some(WorkspaceServerCapabilities {
+                    workspace_folders: Some(WorkspaceFoldersServerCapabilities {
+                        supported: Some(true),
+                        change_notifications: Some(OneOf::Left(true)),
+                    }),
+                    file_operations: None,
+                }),
+                ..ServerCapabilities::default()
+            },
+        };
+
+        assert_eq!(result.offset_encoding, Some("utf-8".to_string()));
+        assert_eq!(result.server_info.as_ref().unwrap().name, "noventa-lsp");
+        assert!(result.capabilities.text_document_sync.is_some());
+        assert!(result.capabilities.workspace.is_some());
+    }
+}

@@ -106,6 +106,7 @@ fn get_path_type(path: &std::path::Path) -> PathType {
             let route_part = &path_str[pages_index + "/pages/".len()..];
             let route = route_part.strip_suffix(".html").unwrap_or(route_part);
             let route = route.strip_suffix("index").unwrap_or(route);
+            let route = route.trim_end_matches('/');
             let route = if route.is_empty() { "/" } else { route };
             let route = if !route.starts_with('/') {
                 format!("/{}", route)
@@ -549,4 +550,160 @@ pub fn run_interactive_tool(
 
     let response = tool_runner.run_tool(tool_name, user_input);
     Ok(Value::String(response))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_is_path_safe_safe_paths() {
+        // Test safe relative paths
+        assert!(is_path_safe(Path::new("file.txt")).unwrap());
+        assert!(is_path_safe(Path::new("subdir/file.txt")).unwrap());
+        assert!(is_path_safe(Path::new("./file.txt")).unwrap());
+        
+        // Test safe absolute paths within current directory
+        let current_dir = std::env::current_dir().unwrap();
+        assert!(is_path_safe(&current_dir.join("file.txt")).unwrap());
+    }
+
+    #[test]
+    fn test_is_path_safe_unsafe_paths() {
+        // Test paths that try to escape the current directory
+        assert!(!is_path_safe(Path::new("../file.txt")).unwrap());
+        assert!(!is_path_safe(Path::new("../../file.txt")).unwrap());
+        assert!(!is_path_safe(Path::new("../../../etc/passwd")).unwrap());
+        
+        // Test absolute paths outside current directory
+        assert!(!is_path_safe(Path::new("/etc/passwd")).unwrap());
+        assert!(!is_path_safe(Path::new("/tmp/file.txt")).unwrap());
+    }
+
+    #[test]
+    fn test_get_path_type_directory() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let dir_path = temp_dir.path();
+        assert!(matches!(get_path_type(dir_path), PathType::Directory));
+    }
+
+    #[test]
+    fn test_get_path_type_component_logic() {
+        let path = Path::new("components/user/user_logic.py");
+        assert!(matches!(get_path_type(path), PathType::ComponentLogic(parent) if parent == "user"));
+        
+        let path = Path::new("some/deep/components/auth/auth_logic.py");
+        assert!(matches!(get_path_type(path), PathType::ComponentLogic(parent) if parent == "auth"));
+    }
+
+    #[test]
+    fn test_get_path_type_component_template() {
+        let path = Path::new("components/user/user_template.html");
+        assert!(matches!(get_path_type(path), PathType::ComponentTemplate(parent) if parent == "user"));
+    }
+
+    #[test]
+    fn test_get_path_type_component_model() {
+        let path = Path::new("components/user/user_models.py");
+        assert!(matches!(get_path_type(path), PathType::ComponentModel(parent) if parent == "user"));
+    }
+
+    #[test]
+    fn test_get_path_type_page_template() {
+        let path = Path::new("/project/pages/index.html");
+        assert!(matches!(get_path_type(path), PathType::PageTemplate(route) if route == "/"));
+        
+        let path = Path::new("/project/pages/about.html");
+        assert!(matches!(get_path_type(path), PathType::PageTemplate(route) if route == "/about"));
+        
+        let path = Path::new("/project/pages/blog/index.html");
+        assert!(matches!(get_path_type(path), PathType::PageTemplate(route) if route == "/blog"));
+        
+        let path = Path::new("/project/pages/blog/post.html");
+        assert!(matches!(get_path_type(path), PathType::PageTemplate(route) if route == "/blog/post"));
+    }
+
+    #[test]
+    fn test_get_path_type_page_layout() {
+        let path = Path::new("/project/layouts/main.html");
+        assert!(matches!(get_path_type(path), PathType::PageLayout));
+        
+        let path = Path::new("/some/deep/layouts/custom.html");
+        assert!(matches!(get_path_type(path), PathType::PageLayout));
+    }
+
+    #[test]
+    fn test_get_path_type_file() {
+        let path = Path::new("README.md");
+        assert!(matches!(get_path_type(path), PathType::File));
+        
+        let path = Path::new("src/main.rs");
+        assert!(matches!(get_path_type(path), PathType::File));
+        
+        let path = Path::new("components/user.py"); // Not matching the pattern
+        assert!(matches!(get_path_type(path), PathType::File));
+    }
+
+    #[test]
+    fn test_get_file_metadata_component_logic() {
+        let path = Path::new("components/user/user_logic.py");
+        
+        let short = get_file_metadata(path, false);
+        assert_eq!(short, Some("Component Logic".to_string()));
+        
+        let full = get_file_metadata(path, true);
+        assert_eq!(full, Some("Metadata of the file:\nPython component logic that returns context to the jinja view for component 'user'".to_string()));
+    }
+
+    #[test]
+    fn test_get_file_metadata_component_template() {
+        let path = Path::new("components/user/user_template.html");
+        
+        let short = get_file_metadata(path, false);
+        assert_eq!(short, Some("Component Template".to_string()));
+        
+        let full = get_file_metadata(path, true);
+        assert_eq!(full, Some("Metadata of the file:\nJinja template for component 'user'".to_string()));
+    }
+
+    #[test]
+    fn test_get_file_metadata_component_model() {
+        let path = Path::new("components/user/user_models.py");
+        
+        let short = get_file_metadata(path, false);
+        assert_eq!(short, Some("Component Model".to_string()));
+        
+        let full = get_file_metadata(path, true);
+        assert_eq!(full, Some("Metadata of the file:\nSQLAlchemy model for component 'user'".to_string()));
+    }
+
+    #[test]
+    fn test_get_file_metadata_page_template() {
+        let path = Path::new("/project/pages/about.html");
+        
+        let short = get_file_metadata(path, false);
+        assert_eq!(short, Some("Page Template".to_string()));
+        
+        let full = get_file_metadata(path, true);
+        assert_eq!(full, Some("Metadata of the file:\nPage template that generates the route: /about".to_string()));
+    }
+
+    #[test]
+    fn test_get_file_metadata_page_layout() {
+        let path = Path::new("/project/layouts/main.html");
+        
+        let short = get_file_metadata(path, false);
+        assert_eq!(short, Some("Page Layout".to_string()));
+        
+        let full = get_file_metadata(path, true);
+        assert_eq!(full, Some("Metadata of the file:\nJinja layout used across pages".to_string()));
+    }
+
+    #[test]
+    fn test_get_file_metadata_file() {
+        let path = Path::new("README.md");
+        assert_eq!(get_file_metadata(path, false), None);
+        assert_eq!(get_file_metadata(path, true), None);
+    }
 }

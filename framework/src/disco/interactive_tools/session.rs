@@ -43,3 +43,40 @@ impl SessionManager {
         *self.session.lock().unwrap() = None;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_manager_new() {
+        let manager = SessionManager::new();
+        assert!(manager.get_session().is_none());
+    }
+
+    #[test]
+    fn test_session_manager_create_session() {
+        let manager = SessionManager::new();
+        let session = manager.create_session("test_tool", "step1");
+        assert_eq!(session.tool_name, "test_tool");
+        assert_eq!(session.current_step, "step1");
+        assert_eq!(manager.get_session().unwrap().tool_name, "test_tool");
+    }
+
+    #[test]
+    fn test_session_manager_update_session() {
+        let manager = SessionManager::new();
+        manager.create_session("test_tool", "step1");
+        manager.update_session("step2");
+        assert_eq!(manager.get_session().unwrap().current_step, "step2");
+    }
+
+    #[test]
+    fn test_session_manager_end_session() {
+        let manager = SessionManager::new();
+        manager.create_session("test_tool", "step1");
+        assert!(manager.get_session().is_some());
+        manager.end_session();
+        assert!(manager.get_session().is_none());
+    }
+}

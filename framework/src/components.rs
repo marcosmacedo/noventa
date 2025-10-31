@@ -136,4 +136,62 @@ mod tests {
         }
     }
 
+    #[test]
+    fn test_scan_single_component() {
+        let dir = tempdir().unwrap();
+        let components_dir = dir.path();
+
+        // Create a component with both logic and template
+        let comp_dir = components_dir.join("mycomp");
+        fs::create_dir(&comp_dir).unwrap();
+        let mut logic = File::create(comp_dir.join("mycomp_logic.py")).unwrap();
+        logic.write_all(b"print('logic')").unwrap();
+        let mut template = File::create(comp_dir.join("template.html")).unwrap();
+        template.write_all(b"<div>My Component</div>").unwrap();
+
+        // Test scanning the component
+        let component_path = comp_dir.join("template.html");
+        let component = scan_single_component(&component_path, components_dir).unwrap();
+        
+        assert_eq!(component.id, "mycomp");
+        assert!(component.logic_path.is_some());
+        assert!(component.logic_path.unwrap().contains("mycomp_logic.py"));
+        assert!(component.template_path.contains("template.html"));
+        assert_eq!(component.template_content, "<div>My Component</div>");
+    }
+
+    #[test]
+    fn test_scan_single_component_no_logic() {
+        let dir = tempdir().unwrap();
+        let components_dir = dir.path();
+
+        // Create a component with only template
+        let comp_dir = components_dir.join("simple");
+        fs::create_dir(&comp_dir).unwrap();
+        let mut template = File::create(comp_dir.join("template.html")).unwrap();
+        template.write_all(b"<p>Simple</p>").unwrap();
+
+        let component_path = comp_dir.join("template.html");
+        let component = scan_single_component(&component_path, components_dir).unwrap();
+        
+        assert_eq!(component.id, "simple");
+        assert!(component.logic_path.is_none());
+        assert_eq!(component.template_content, "<p>Simple</p>");
+    }
+
+    #[test]
+    fn test_scan_single_component_missing_template() {
+        let dir = tempdir().unwrap();
+        let components_dir = dir.path();
+
+        // Create a component directory with only logic
+        let comp_dir = components_dir.join("broken");
+        fs::create_dir(&comp_dir).unwrap();
+        let mut logic = File::create(comp_dir.join("broken_logic.py")).unwrap();
+        logic.write_all(b"print('broken')").unwrap();
+
+        let component_path = comp_dir.join("broken_logic.py");
+        let result = scan_single_component(&component_path, components_dir);
+        assert!(result.is_err());
+    }
 }
