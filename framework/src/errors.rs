@@ -33,12 +33,12 @@ pub enum ErrorSource {
     Template(TemplateInfo),
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ComponentInfo {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TemplateInfo {
     pub name: String,
     pub line: usize,

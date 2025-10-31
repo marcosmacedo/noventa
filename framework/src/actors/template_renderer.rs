@@ -14,6 +14,8 @@ use once_cell::sync::Lazy;
 
 static FORM_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(<form[^>]*>)").unwrap());
 static COMPONENT_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"\{\{\s*component\s*\(([^)]+)\)\s*\}\}").unwrap());
+static EXTENDS_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r#"\{%\s*extends\s*"([^"]+)"\s*%\}
+"#).unwrap());
 
 // Actor for rendering templates
 pub struct TemplateRendererActor {
@@ -38,6 +40,7 @@ impl TemplateRendererActor {
         components: Vec<Component>,
     ) -> Self {
         let mut env = Environment::new();
+        minijinja_contrib::add_to_environment(&mut env);
         env.set_loader(minijinja::path_loader("."));
 
         Self {
@@ -65,7 +68,7 @@ impl TemplateRendererActor {
             file_path: msg.template_name.clone(),
             ..Default::default()
         })?;
-        self.recursive_scan(template.source(), &mut component_calls).map_err(|e| DetailedError {
+        self.recursive_scan(&msg.template_name, template.source(), &mut component_calls).map_err(|e| DetailedError {
             page: Some(crate::errors::TemplateInfo {
                 name: msg.template_name.clone(),
                 line: 0,
@@ -84,10 +87,23 @@ impl TemplateRendererActor {
         let form_component_id = form_data.get("component_id").cloned().unwrap_or_default();
         let action = form_data.get("action").cloned().unwrap_or_default();
 
+        log::debug!("Handling POST request for component '{}', action '{}'", form_component_id, action);
+
     // Phase 2: Act & Cache - Execute the action handler for the target component *before* rendering.
         // The unique context returned by the action is cached to be used in the final render.
         let mut action_context = None;
-        if let Some(action_component_call) = component_calls.iter().find(|c| c.name == form_component_id) {
+
+        log::debug!("--- Debugging POST Request ---");
+        log::debug!("Form Component ID: '{}'", form_component_id);
+        log::debug!("Component Calls Found:");
+        for call in &component_calls {
+            log::debug!("  - Name: {}, Kwargs: {:?}", call.name, call.kwargs);
+        }
+
+        let found_component = component_calls.iter().find(|c| c.name == form_component_id);
+
+        if let Some(action_component_call) = found_component {
+            log::debug!("Successfully found component to handle action: '{}'", action_component_call.name);
             if !action.is_empty() {
                 let mut form_data_value = HashMap::new();
                 for (k, v) in form_data {
@@ -157,7 +173,30 @@ impl TemplateRendererActor {
                         }
                     }
                 }
+            }else{
+                return Err(DetailedError {
+                    component: Some(ComponentInfo {
+                        name: action_component_call.name.clone(),
+                    }),
+                    error_source: Some(ErrorSource::Template(crate::errors::TemplateInfo {
+                        name: msg.template_name.clone(),
+                        ..Default::default()
+                    })),
+                    message: "This component requires an action to be specified in the template".to_string(),
+                    file_path: msg.template_name.clone(),
+                    ..Default::default()
+                });
             }
+        }else {
+            return Err(DetailedError {
+                error_source: Some(ErrorSource::Template(crate::errors::TemplateInfo {
+                    name: msg.template_name.clone(),
+                    ..Default::default()
+                })),
+                message: "No component found for the given component_id in the POST data".to_string(),
+                file_path: msg.template_name.clone(),
+                ..Default::default()
+            });
         }
 
         // Phase 3: Render - Render the full page.
@@ -320,7 +359,20 @@ impl TemplateRendererActor {
     // Recursively scans template files to find all `{{ component(...) }}` calls.
     // This builds a complete tree of all components on a page and their arguments,
     // without executing any of them.
-    fn recursive_scan(&self, template_content: &str, calls: &mut Vec<ComponentCall>) -> Result<(), minijinja::Error> {
+    fn recursive_scan(&self, template_name: &str, template_content: &str, calls: &mut Vec<ComponentCall>) -> Result<(), minijinja::Error> {
+        log::debug!("Scanning template: {}", template_name);
+
+        // First, check for an `extends` tag and scan the parent template.
+        if let Some(caps) = EXTENDS_REGEX.captures(template_content) {
+            if let Some(parent_template_name) = caps.get(1) {
+                let parent_name = parent_template_name.as_str();
+                log::debug!("Found extends tag, scanning parent: {}", parent_name);
+                let parent_template = self.env.get_template(parent_name)?;
+                self.recursive_scan(parent_name, parent_template.source(), calls)?;
+            }
+        }
+
+        // Now, scan the current template for component calls.
         for cap in COMPONENT_REGEX.captures_iter(template_content) {
             let args_str = &cap[1];
             // Manual parsing of arguments from the template string.
@@ -346,7 +398,7 @@ impl TemplateRendererActor {
             })?;
 
             // Recurse into the component's own template to find nested components.
-            self.recursive_scan(&component.template_content, calls)?;
+            self.recursive_scan(&component.id, &component.template_content, calls)?;
             calls.push(ComponentCall { name, kwargs: kwargs_map });
         }
 

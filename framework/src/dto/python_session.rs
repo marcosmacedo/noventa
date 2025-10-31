@@ -73,7 +73,7 @@ impl PySession {
         }
     }
 
-    fn __getitem__(&self, py: Python, key: &str) -> PyResult<PyObject> {
+    fn __getitem__(&self, py: Python, key: &str) -> PyResult<Py<PyAny>> {
         let msg = GetSessionValue {
             key: key.to_string(),
         };
@@ -92,7 +92,7 @@ impl PySession {
         }
     }
 
-fn __setitem__(&mut self, py: Python, key: &str, value: PyObject) -> PyResult<()> {
+fn __setitem__(&mut self, py: Python, key: &str, value: Py<PyAny>) -> PyResult<()> {
     // In newer PyO3, bind() is used to get a Bound reference
     let bound_value = value.bind(py);
 
@@ -153,7 +153,7 @@ fn __setitem__(&mut self, py: Python, key: &str, value: PyObject) -> PyResult<()
     }
 
     #[pyo3(signature = (key, default = None))]
-    fn get(&self, py: Python, key: &str, default: Option<PyObject>) -> PyResult<PyObject> {
+    fn get(&self, py: Python, key: &str, default: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
         let msg = GetSessionValue {
             key: key.to_string(),
         };
@@ -173,7 +173,7 @@ fn __setitem__(&mut self, py: Python, key: &str, value: PyObject) -> PyResult<()
     }
 
     #[pyo3(signature = (key, default = None))]
-    fn pop(&mut self, py: Python, key: &str, default: Option<PyObject>) -> PyResult<PyObject> {
+    fn pop(&mut self, py: Python, key: &str, default: Option<Py<PyAny>>) -> PyResult<Py<PyAny>> {
         let get_msg = GetSessionValue {
             key: key.to_string(),
         };
