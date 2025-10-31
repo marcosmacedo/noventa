@@ -218,4 +218,11 @@ session:
         let result = Config::from_file("non_existent_config.yaml");
         assert!(matches!(result, Err(ConfigError::Io(_))));
     }
+
+    #[test]
+    fn test_find_config_file() {
+        // Test with current directory (should work regardless of config.yaml presence)
+        let path = find_config_file();
+        assert!(path.is_absolute() || path.exists()); // Either absolute or exists as relative
+    }
 }

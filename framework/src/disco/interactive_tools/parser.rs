@@ -44,3 +44,16 @@ static TOOLS: Lazy<HashMap<String, InteractiveTool>> = Lazy::new(|| {
 pub fn load_tools() -> &'static HashMap<String, InteractiveTool> {
     &TOOLS
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_tools() {
+        let tools = load_tools();
+        assert!(!tools.is_empty());
+        // Since only DATABASE_MIGRATION_HELPER is included
+        assert!(tools.contains_key("database_migration_helper"));
+    }
+}

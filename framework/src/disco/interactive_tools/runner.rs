@@ -79,3 +79,154 @@ impl ToolRunner {
         response
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::disco::interactive_tools::models::{InteractiveTool, Step, OptionDef};
+    use std::collections::HashMap;
+
+    fn create_test_tool() -> InteractiveTool {
+        let mut steps = HashMap::new();
+        steps.insert("start".to_string(), Step {
+            text: "Welcome to the test tool".to_string(),
+            options: Some(vec![
+                OptionDef {
+                    label: "Option 1".to_string(),
+                    next_step: "step1".to_string(),
+                },
+                OptionDef {
+                    label: "End".to_string(),
+                    next_step: "[END]".to_string(),
+                },
+            ]),
+        });
+        steps.insert("step1".to_string(), Step {
+            text: "You chose option 1".to_string(),
+            options: None,
+        });
+
+        InteractiveTool {
+            name: "test_tool".to_string(),
+            description: "A test tool".to_string(),
+            initial_step: "start".to_string(),
+            steps,
+        }
+    }
+
+    #[test]
+    fn test_tool_runner_new() {
+        let tools = HashMap::new();
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        assert!(runner.tools.is_empty());
+    }
+
+    #[test]
+    fn test_run_tool_unknown() {
+        let tools = HashMap::new();
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        let result = runner.run_tool("unknown", None);
+        assert_eq!(result, "Unknown tool");
+    }
+
+    #[test]
+    fn test_run_tool_initial_step() {
+        let mut tools = HashMap::new();
+        tools.insert("test_tool".to_string(), create_test_tool());
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        let result = runner.run_tool("test_tool", None);
+        assert!(result.contains("Welcome to the test tool"));
+        assert!(result.contains("1. Option 1"));
+        assert!(result.contains("2. End"));
+    }
+
+    #[test]
+    fn test_run_tool_with_option() {
+        let mut tools = HashMap::new();
+        tools.insert("test_tool".to_string(), create_test_tool());
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        
+        // Start session
+        runner.run_tool("test_tool", None);
+        
+        // Choose option 1
+        let result = runner.run_tool("test_tool", Some(1));
+        assert_eq!(result, "You chose option 1");
+    }
+
+    #[test]
+    fn test_run_tool_end_option() {
+        let mut tools = HashMap::new();
+        tools.insert("test_tool".to_string(), create_test_tool());
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        
+        // Start session
+        runner.run_tool("test_tool", None);
+        
+        // Choose end option
+        let result = runner.run_tool("test_tool", Some(2));
+        assert_eq!(result, "Session ended.");
+    }
+
+    #[test]
+    fn test_run_tool_invalid_option() {
+        let mut tools = HashMap::new();
+        tools.insert("test_tool".to_string(), create_test_tool());
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        
+        // Start session
+        runner.run_tool("test_tool", None);
+        
+        // Choose invalid option
+        let result = runner.run_tool("test_tool", Some(10));
+        assert_eq!(result, "Invalid option.");
+    }
+
+    #[test]
+    fn test_format_step_with_options() {
+        let tools = HashMap::new();
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        
+        let step = Step {
+            text: "Choose an option".to_string(),
+            options: Some(vec![
+                OptionDef {
+                    label: "Yes".to_string(),
+                    next_step: "yes".to_string(),
+                },
+                OptionDef {
+                    label: "No".to_string(),
+                    next_step: "no".to_string(),
+                },
+            ]),
+        };
+        
+        let result = runner.format_step(&step, "test_tool");
+        assert!(result.contains("Choose an option"));
+        assert!(result.contains("1. Yes"));
+        assert!(result.contains("2. No"));
+        assert!(result.contains("Reply calling the tool (test_tool)"));
+    }
+
+    #[test]
+    fn test_format_step_without_options() {
+        let tools = HashMap::new();
+        let session_manager = SessionManager::new();
+        let runner = ToolRunner::new(tools, session_manager);
+        
+        let step = Step {
+            text: "Final message".to_string(),
+            options: None,
+        };
+        
+        let result = runner.format_step(&step, "test_tool");
+        assert_eq!(result, "Final message");
+    }
+}

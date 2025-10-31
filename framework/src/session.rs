@@ -182,4 +182,45 @@ mod tests {
         let deleted_session = backend.load(&session_key).await.unwrap();
         assert!(deleted_session.is_none());
     }
+
+    #[actix_rt::test]
+    async fn test_runtime_session_store_in_memory() {
+        let backend = InMemoryBackend::new();
+        let store = RuntimeSessionStore::InMemory(backend);
+        let ttl = Duration::days(1);
+
+        // Save a new session
+        let mut session_state = HashMap::new();
+        session_state.insert("key1".to_string(), "value1".to_string());
+        let session_key = store.save(session_state.clone(), &ttl).await.unwrap();
+
+        // Load the session
+        let loaded_session = store.load(&session_key).await.unwrap().unwrap();
+        assert_eq!(loaded_session, session_state);
+
+        // Update the session
+        let mut updated_session_state = session_state.clone();
+        updated_session_state.insert("key2".to_string(), "value2".to_string());
+        let session_key_for_update = SessionKey::try_from(session_key.as_ref().to_string()).unwrap();
+        store
+            .update(
+                session_key_for_update,
+                updated_session_state.clone(),
+                &ttl,
+            )
+            .await
+            .unwrap();
+
+        // Load the updated session
+        let loaded_updated_session = store.load(&session_key).await.unwrap().unwrap();
+        assert_eq!(loaded_updated_session, updated_session_state);
+
+        // Test update_ttl
+        assert!(store.update_ttl(&session_key, &ttl).await.is_ok());
+
+        // Delete the session
+        store.delete(&session_key).await.unwrap();
+        let deleted_session = store.load(&session_key).await.unwrap();
+        assert!(deleted_session.is_none());
+    }
 }

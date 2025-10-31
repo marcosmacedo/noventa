@@ -205,4 +205,25 @@ mod tests {
             Some(20.0)
         );
     }
+
+    #[actix_rt::test]
+    async fn test_health_actor_p95_calculation() {
+        let addr = HealthActor::new().start();
+
+        // Report enough data points to test p95 calculation
+        for i in 1..=21 {
+            addr.do_send(ReportRtt(i as f64));
+        }
+
+        // Wait for the messages to be processed
+        time::sleep(Duration::from_millis(100)).await;
+
+        // Get the health report
+        let health = addr.send(GetSystemHealth).await.unwrap();
+
+        // Check the p95 calculation (95th percentile of 1..=21 should be around 20)
+        let metrics = health.thirty_seconds;
+        assert_eq!(metrics.rtt.p95_ms, 20.0); // 95% of 21 is index 19 (0-based), value 20
+        assert_eq!(metrics.rtt.mean_ms, 11.0); // mean of 1+2+...+21 = 231/21 = 11
+    }
 }

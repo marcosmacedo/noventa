@@ -672,3 +672,27 @@ fn path_to_module(path_str: &str) -> Result<String, std::io::Error> {
 
     Ok(module_path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_path_to_module() {
+        // Test basic conversion
+        assert_eq!(path_to_module("utils.py").unwrap(), "utils");
+        assert_eq!(path_to_module("path/to/module.py").unwrap(), "path.to.module");
+        
+        // Test with leading ./
+        assert_eq!(path_to_module("./utils.py").unwrap(), "utils");
+        assert_eq!(path_to_module("./path/to/module.py").unwrap(), "path.to.module");
+        
+        // Test without .py extension
+        assert_eq!(path_to_module("utils").unwrap(), "utils");
+        assert_eq!(path_to_module("path/to/module").unwrap(), "path.to.module");
+        
+        // Test edge cases
+        assert_eq!(path_to_module("single").unwrap(), "single");
+        assert_eq!(path_to_module("a/b/c.py").unwrap(), "a.b.c");
+    }
+}

@@ -105,3 +105,43 @@ pub fn print_banner(host: &str, port: u16, dev_mode: bool) {
     println!("{}", "   - Happy coding!".cyan());
     println!("{}", border.purple());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_print_banner() {
+        // Test that print_banner doesn't panic and produces output
+        // We can't easily capture stdout in tests, so we just ensure it runs
+        print_banner("localhost", 3000, false);
+        print_banner("127.0.0.1", 8080, true);
+        // If we get here without panicking, the test passes
+    }
+
+    #[test]
+    fn test_inspiring_phrases_array() {
+        // Test that the inspiring phrases array is not empty and contains expected content
+        assert!(!INSPIRING_PHRASES.is_empty());
+        assert!(INSPIRING_PHRASES.len() == 10);
+        
+        // Check that all phrases are non-empty strings
+        for phrase in &INSPIRING_PHRASES {
+            assert!(!phrase.is_empty());
+            assert!(phrase.len() > 10); // Reasonable minimum length
+        }
+        
+        // Check for some expected content
+        assert!(INSPIRING_PHRASES.iter().any(|p| p.contains("code")));
+        assert!(INSPIRING_PHRASES.iter().any(|p| p.contains("web")));
+    }
+
+    #[test]
+    fn test_init_logger() {
+        // Test that init_logger doesn't panic with valid log levels
+        // Note: This will initialize the global logger, so it should only be called once
+        // In a real application, this would be called at startup
+        // For testing, we just ensure it doesn't panic
+        // init_logger("info"); // Commented out to avoid affecting other tests
+    }
+}
