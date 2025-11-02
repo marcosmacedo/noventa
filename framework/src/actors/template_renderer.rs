@@ -25,6 +25,7 @@ pub struct TemplateRendererActor {
     health_actor: Addr<HealthActor>,
     dev_mode: bool,
     components: Arc<RwLock<Vec<Component>>>,
+    page_component_map: Arc<RwLock<HashMap<String, Vec<ComponentCall>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,35 +51,37 @@ impl TemplateRendererActor {
             health_actor,
             dev_mode,
             components: Arc::new(RwLock::new(components)),
+            page_component_map: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    fn scan_and_cache_components(&mut self) {
+        let mut page_component_map = self.page_component_map.write().unwrap();
+        page_component_map.clear();
+
+        let pages_dir = config::BASE_PATH.join("pages");
+        if let Ok(entries) = std::fs::read_dir(pages_dir) {
+            for entry in entries.filter_map(Result::ok) {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(template_name) = path.strip_prefix(&*config::BASE_PATH).ok().and_then(|p| p.to_str()) {
+                        let mut component_calls = Vec::new();
+                        if let Ok(template) = self.env.get_template(template_name) {
+                            if self.recursive_scan(template_name, template.source(), &mut component_calls).is_ok() {
+                                page_component_map.insert(template_name.to_string(), component_calls);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
     fn handle_post_request(&mut self, msg: RenderTemplate) -> Result<RenderOutput, DetailedError> {
-        // Phase 1: Scan - Recursively find all `component()` calls in the templates
-        // to build a complete blueprint of the page's component tree.
-        let mut component_calls = Vec::new();
-        let template = self.env.get_template(&msg.template_name).map_err(|e| DetailedError {
-            page: Some(crate::errors::TemplateInfo {
-                name: msg.template_name.clone(),
-                line: e.line().unwrap_or(0),
-                source: None,
-                source_code: None,
-                detail: e.detail().unwrap_or("").to_string(),
-                traceback: Some(format!("{:?}", e)),
-            }),
-            file_path: msg.template_name.clone(),
-            ..Default::default()
-        })?;
-        self.recursive_scan(&msg.template_name, template.source(), &mut component_calls).map_err(|e| DetailedError {
-            page: Some(crate::errors::TemplateInfo {
-                name: msg.template_name.clone(),
-                line: 0,
-                source: None,
-                source_code: None,
-                detail: e.to_string(),
-                traceback: Some(format!("{:?}", e)),
-            }),
-            file_path: msg.template_name.clone(),
+        // Phase 1: Look up component calls from the cached map.
+        let page_component_map = self.page_component_map.read().unwrap();
+        let component_calls = page_component_map.get(&msg.template_name).ok_or_else(|| DetailedError {
+            message: format!("Component map not found for page '{}'", msg.template_name),
             ..Default::default()
         })?;
 
@@ -100,7 +103,7 @@ impl TemplateRendererActor {
         log::debug!("--- Debugging POST Request ---");
         log::debug!("Form Component ID: '{}'", form_component_id);
         log::debug!("Component Calls Found:");
-        for call in &component_calls {
+        for call in component_calls {
             log::debug!("  - Name: {}, Kwargs: {:?}", call.name, call.kwargs);
         }
 
@@ -445,7 +448,9 @@ impl TemplateRendererActor {
 impl Actor for TemplateRendererActor {
     type Context = SyncContext<Self>;
 
-    fn started(&mut self, _ctx: &mut Self::Context) {}
+    fn started(&mut self, _ctx: &mut Self::Context) {
+        self.scan_and_cache_components();
+    }
 }
 
 // Message for rendering a template
@@ -460,6 +465,10 @@ pub struct RenderTemplate {
 #[derive(Message, Clone)]
 #[rtype(result = "()")]
 pub struct UpdateComponents(pub Vec<Component>);
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct RescanComponents;
 
 
 impl Handler<RenderTemplate> for TemplateRendererActor {
@@ -655,6 +664,14 @@ impl Handler<UpdateComponents> for TemplateRendererActor {
     fn handle(&mut self, msg: UpdateComponents, _ctx: &mut Self::Context) -> Self::Result {
         let mut components = self.components.write().unwrap();
         *components = msg.0;
+    }
+}
+
+impl Handler<RescanComponents> for TemplateRendererActor {
+    type Result = ();
+
+    fn handle(&mut self, _msg: RescanComponents, _ctx: &mut Self::Context) -> Self::Result {
+        self.scan_and_cache_components();
     }
 }
 

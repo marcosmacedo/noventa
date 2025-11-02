@@ -10,7 +10,6 @@ use actix_session::{
 use actix_web_actors::ws;
 use deadpool_redis::{Config, Runtime};
 use actix_files::Files;
-use pyo3::types::{PyAnyMethods, PyListMethods};
 use std::path::Path;
 use std::process::Command;
 use path_clean::PathClean;
@@ -82,7 +81,7 @@ enum Commands {
 async fn main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
-    let (dev_mode, command) = match &cli.command {
+    let (_dev_mode, command) = match &cli.command {
         Some(Commands::Dev) => (true, cli.command.as_ref()),
         Some(Commands::Serve) => (false, cli.command.as_ref()),
         Some(Commands::Disco) => (false, cli.command.as_ref()),

@@ -1,5 +1,4 @@
-use crate::errors::{DetailedError, ERROR_CHANNEL, ErrorSource};
-use crate::actors::interpreter::PythonError;
+use crate::errors::{DetailedError, ERROR_CHANNEL};
 use minijinja::Environment;
 use once_cell::sync::Lazy;
 
@@ -180,9 +179,8 @@ fn add_marker_and_scripts(rendered: &mut String) {
     let marker = format!("<!-- debug_rendered: {} -->", timestamp);
 
     if let Some(body_end_pos) = rendered.rfind("</body>") {
-        let morphdom_script = format!("<script>{}</script>\n", include_str!("../scripts/morphdom-2.6.1-umd.min.js"));
         let devws_script = format!("<script>{}</script>", include_str!("../scripts/devws.js"));
-        rendered.insert_str(body_end_pos, &format!("\n{}\n{}\n", morphdom_script, devws_script));
+        rendered.insert_str(body_end_pos, &format!("\n{}\n", devws_script));
     } else {
         rendered.push_str(&marker);
     }
