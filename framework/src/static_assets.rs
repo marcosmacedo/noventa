@@ -38,12 +38,15 @@ pub static EMBEDDED_FILES: Lazy<HashMap<String, EmbeddedFile>> = Lazy::new(|| {
         .collect()
 });
 
+use crate::config::CONFIG;
+
 pub fn get_script_tags() -> String {
+    let prefix = CONFIG.static_url_prefix.as_deref().unwrap_or("/static");
     SCRIPT_ORDER
         .iter()
         .map(|&(_name, content)| {
             let hash = hash_content(content);
-            format!("<script defer src=\"/noventa-static/{}\"></script>", hash)
+            format!("<script defer src=\"{}/noventa-static/{}\"></script>\n", prefix, hash)
         })
         .collect::<String>()
 }

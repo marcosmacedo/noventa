@@ -229,6 +229,7 @@ impl Handler<ReloadInterpreter> for PythonInterpreterActor {
 
     fn handle(&mut self, _msg: ReloadInterpreter, ctx: &mut Self::Context) -> Self::Result {
         log::debug!("Interpreter {} received reload request", self.id);
+        self.modules.clear();
         self.started(ctx);
     }
 }

@@ -18,6 +18,7 @@ pub struct CompiledRoute {
     pub regex: Regex,
     pub param_names: Vec<String>,
     pub template_path: PathBuf,
+    pub route_pattern: String,
 }
 
 pub fn get_compiled_routes(pages_dir: &Path) -> Vec<CompiledRoute> {
@@ -90,6 +91,7 @@ fn compile_route(route_pattern: String, template_path: PathBuf) -> CompiledRoute
         regex,
         param_names,
         template_path,
+        route_pattern,
     }
 }
 
@@ -329,8 +331,9 @@ pub async fn dynamic_route_handler(
     session: Session,
 ) -> HttpResponse {
     let path = req.path().to_string();
-    match router.send(MatchRoute(path)).await {
+    match router.send(MatchRoute(path.clone())).await {
         Ok(Some((template_path, path_params))) => {
+            log::info!("Dev handler matched route for path '{}', template: '{}', params: {:?}", path, template_path, path_params);
             let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
             handle_page(req, payload, renderer, session, template_path, path_params, dev_mode).await
         }

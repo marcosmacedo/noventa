@@ -14,6 +14,7 @@ use std::path::Path;
 use std::process::Command;
 use path_clean::PathClean;
 use std::env;
+use std::collections::HashMap;
 use crate::actors::page_renderer::RenderMessage;
 
 mod actors;
@@ -102,7 +103,7 @@ async fn main() -> std::io::Result<()> {
         Some(Commands::Disco) => disco::server::run_disco_server().await,
         Some(Commands::New { no_input }) => create_new_project(cli.starter.as_deref(), *no_input),
         Some(Commands::Ssg { path }) => {
-            let srv = run_dev_server().await?;
+            let srv = run_prod_server().await?;
             let srv_handle = srv.handle();
             let ssg_actor = SSGActor::new().start();
 
@@ -192,6 +193,7 @@ async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
         lsp: lsp_actor,
     });
 
+    let noventa_static_route = format!("{}/noventa-static/{{filename:.*}}", config::CONFIG.static_url_prefix.as_deref().unwrap_or("/static"));
     let server = HttpServer::new(move || {
         let mut app = App::new()
             .wrap(actix_web::middleware::Condition::new(
@@ -206,7 +208,7 @@ async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
             .app_data(web::Data::new(router_addr.clone()))
             .app_data(web::Data::new(ws_server.clone()))
             .route("/devws", web::get().to(dev_ws))
-            .route("/noventa-static/{filename:.*}", web::get().to(serve_embedded_file))
+            .route(&noventa_static_route, web::get().to(serve_embedded_file))
             .default_service(web::route().to(routing::dynamic_route_handler));
 
         if let Some(static_path_str) = &config::CONFIG.static_path {
@@ -332,7 +334,7 @@ async fn configure_server(
     log::debug!("Found {} components. Ready to roll!", components.len());
 
     let total_cores = num_cpus::get();
-    let (python_threads, template_renderer_threads, actix_web_threads) =
+    let (mut python_threads, mut template_renderer_threads, actix_web_threads) =
         if let Some(core_config) = &config::CONFIG.core_allocation {
             let python_threads = core_config.python_threads.unwrap_or((total_cores / 2).max(1));
             let template_renderer_threads = core_config
@@ -357,6 +359,15 @@ async fn configure_server(
                 actix_web_threads,
             )
         };
+
+    if dev_mode {
+        //TODO: This is done because SyncArbiter does not allow hot-reloading each interpreter actor individually. Need more robust solution.
+        if python_threads > 1 || template_renderer_threads > 1 {
+            log::warn!("In dev mode, Python and Template actors are limited to 1 thread for hot-reloading. Your config.yaml settings are being ignored.");
+            python_threads = 1;
+            template_renderer_threads = 1;
+        }
+    }
 
     log::debug!(
         "Core allocation: Total={}, Actix Web={}, Python={}, Template Renderer={}. Starting up the engines!",
@@ -471,6 +482,7 @@ async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
     ) = configure_server(false).await?;
 
     let server = HttpServer::new(move || {
+        let noventa_static_route = format!("{}/noventa-static/{{filename:.*}}", config::CONFIG.static_url_prefix.as_deref().unwrap_or("/static"));
         let mut app = App::new()
             .wrap(actix_web::middleware::Condition::new(
                 config::CONFIG.compression.unwrap_or(false),
@@ -480,34 +492,53 @@ async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(false))
             //.route("/health", web::get().to(routing::health_check))
-            .route("/noventa-static/{filename:.*}", web::get().to(serve_embedded_file));
+            .route(&noventa_static_route, web::get().to(serve_embedded_file));
 
         let pages_dir = config::BASE_PATH.join("pages");
         let routes = routing::get_compiled_routes(&pages_dir);
-        for route in routes {
+        log::debug!("Registering {} routes in production mode", routes.len());
+        
+        for route in routes.iter() {
             let template_path = route.template_path.to_str().unwrap().to_string();
-            let route_pattern = route
-                .regex
-                .to_string()
-                .trim_start_matches('^')
-                .trim_end_matches('$')
-                .to_string();
+            let route_pattern = route.route_pattern.clone();
+            log::debug!("Registering prod route: '{}' -> '{}'", route_pattern, template_path);
+            let route_pattern_clone = route_pattern.clone();
+            let regex_clone = route.regex.clone();
+            let param_names_clone = route.param_names.clone();
             app = app.route(
                 &route_pattern,
-                web::route().to(
+                web::get().to(
                     move |req: HttpRequest,
                           payload: web::Payload,
                           renderer: web::Data<Recipient<RenderMessage>>,
-                          session: Session,
-                          path_params: web::Path<std::collections::HashMap<String, String>>| {
+                          session: Session| {
                         let template_path_clone = template_path.clone();
+                        let route_pattern_log = route_pattern_clone.clone();
+                        let regex = regex_clone.clone();
+                        let param_names = param_names_clone.clone();
                         async move {
+                            // Extract parameters manually using regex, like RouterActor does to support multiple parameters
+                            let path = req.path().to_string();
+                            let params: HashMap<String, String> = if let Some(captures) = regex.captures(&path) {
+                                param_names
+                                    .iter()
+                                    .filter_map(|name| {
+                                        captures
+                                            .name(name)
+                                            .map(|value| (name.clone(), value.as_str().to_string()))
+                                    })
+                                    .collect()
+                            } else {
+                                HashMap::new()
+                            };
+                            
+                            log::debug!("Prod handler called for route '{}' with path '{}', params: {:?}", route_pattern_log, path, params);
                             routing::handle_page_native(
                                 req,
                                 payload,
                                 renderer,
                                 session,
-                                path_params,
+                                web::Path::from(params),
                                 web::Data::new(template_path_clone),
                             )
                             .await

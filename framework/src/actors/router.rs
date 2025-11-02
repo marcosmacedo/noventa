@@ -50,6 +50,7 @@ impl Handler<MatchRoute> for RouterActor {
         let routes = self.routes.read().unwrap();
         let path = msg.0;
 
+        log::debug!("RouterActor checking {} routes for path: {}", routes.len(), path);
         for route in routes.iter() {
             if let Some(captures) = route.regex.captures(&path) {
                 let params: HashMap<String, String> = route
@@ -62,6 +63,7 @@ impl Handler<MatchRoute> for RouterActor {
                     })
                     .collect();
 
+                log::info!("RouterActor matched route '{}' for path '{}', template: '{}', params: {:?}", route.route_pattern, path, route.template_path.display(), params);
                 let template_path_str = route.template_path.strip_prefix(&*config::BASE_PATH).unwrap_or(&route.template_path).to_str().unwrap().to_string();
                 let template_path_str = if template_path_str.starts_with("/") {
                     template_path_str[1..].to_string()
@@ -71,6 +73,7 @@ impl Handler<MatchRoute> for RouterActor {
                 return Some((template_path_str, params));
             }
         }
+        log::debug!("RouterActor found no match for path: {}", path);
         None
     }
 }
