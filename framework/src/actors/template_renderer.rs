@@ -427,11 +427,15 @@ impl TemplateRendererActor {
 
         if let Some(body_end_pos) = result.rfind("</body>") {
             let mut scripts = String::new();
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/idiomorph.min.js")));
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup4.min.js")));
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-preload3.min.js")));
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-scripts2.min.js")));
+            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-head2.min.js")));
             scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/frontend.js")));
-            if self.dev_mode {
-                scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
-            }
+            // We will not include devws.js for now to avoid conflicts with swup.
+            // if self.dev_mode {
+            //     scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
+            // }
             result.insert_str(body_end_pos, &scripts);
         }
 
