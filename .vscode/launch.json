@@ -18,12 +18,12 @@
       "type": "lldb",
       "request": "launch",
       "program": "${workspaceFolder}/framework/target/debug/noventa",
-      "args": ["ssg", "--path", "./out"],
+      "args": ["dev"],
       "cwd": "/Users/marcos/Documents/page",
       "preLaunchTask": "cargo build",
       "env": {
         "DYLD_LIBRARY_PATH": "/Users/marcos/.conda/envs/py310/lib:$DYLD_LIBRARY_PATH",
-        "RUST_LOG": "info"
+        "RUST_LOG": "debug"
       }
     }
   ]

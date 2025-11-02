@@ -8,3 +8,4 @@ target/rust-analyzer/flycheck0
 .vscode
 dist/
 AGENTS.md
+target/
