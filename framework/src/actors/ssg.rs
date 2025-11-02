@@ -79,11 +79,10 @@ impl Handler<SsgMessage> for SSGActor {
                 visited.insert(route_path.clone());
 
                 let url = format!("{}{}", base_url, route_path);
-                log::info!("Rendering route: {}", url);
+                log::debug!("Rendering route: {}", url);
 
                 let response = client.get(&url).send().await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 let html_content = response.text().await.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-                log::warn!("HTML content for {}: {}", url, html_content);
                 let html_content_relative = html_content.replace(&base_url, "");
 
                 let document = scraper::Html::parse_document(&html_content);
@@ -91,8 +90,8 @@ impl Handler<SsgMessage> for SSGActor {
 
                 for element in document.select(&selector) {
                     if let Some(href) = element.value().attr("href") {
-                        if href.starts_with('/') && !visited.contains(href) {
-                            log::warn!("Found link: {}", href);
+                        if href.starts_with('/') {
+                            log::info!("Found link: {}", href);
                             to_visit.push_back(href.to_string());
                         }
                     }
