@@ -3,7 +3,7 @@ use notify::{RecommendedWatcher, Watcher, RecursiveMode, Result};
 use std::path::Path;
 use crate::actors::ws_server::{WsServer, BroadcastReload};
 use crate::actors::router::{RouterActor, ReloadRoutes};
-use crate::actors::template_renderer::{TemplateRendererActor, RescanComponents};
+use crate::actors::template_renderer::{TemplateRendererActor, UpdateComponents};
 use crate::actors::interpreter::{PythonInterpreterActor, ReloadInterpreter};
 
 pub struct FileWatcherActor {
@@ -73,12 +73,21 @@ impl Actor for FileWatcherActor {
 
                         let mut futures = Vec::new();
 
-                        if relative_path.starts_with(&pages_path) || relative_path.starts_with(&layouts_path) || relative_path.starts_with(&components_path) {
-                            log::debug!("A page, layout, or component has changed. Rescanning components and routes now!");
+                        if relative_path.starts_with(&pages_path) {
+                            log::debug!("A page has changed. Reloading the routes now!");
                             let future = router_addr.send(ReloadRoutes);
                             futures.push(Box::pin(future) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
-                            let future = template_renderer_addr.send(RescanComponents);
-                            futures.push(Box::pin(future) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
+                        } else if relative_path.starts_with(&components_path) {
+                            log::debug!("A component has changed. Rescanning all components now!");
+                            match crate::components::scan_components(&components_path) {
+                                Ok(components) => {
+                                    let future = template_renderer_addr.send(UpdateComponents(components));
+                                    futures.push(Box::pin(future) as std::pin::Pin<Box<dyn std::future::Future<Output = _> + Send>>);
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to rescan components: {}", e);
+                                }
+                            }
                         }
 
                         if relative_path.extension().map_or(false, |ext| ext == "py") {

@@ -77,6 +77,7 @@ pub struct Config {
     pub session: Option<SessionConfig>,
     pub log_level: Option<String>,
     pub disable_script_injection: Option<bool>,
+    pub compression: Option<bool>,
 }
 
 lazy_static! {
@@ -167,12 +168,14 @@ session:
   cookie_path: /
   cookie_domain: example.com
   cookie_max_age: 3600
+  compression: true
 ",
         )
         .unwrap();
 
         let config = Config::from_file(config_path.to_str().unwrap()).unwrap();
 
+        assert_eq!(config.compression, Some(true));
         assert_eq!(config.server_address, Some("127.0.0.1".to_string()));
         assert_eq!(config.port, Some(8080 as u32));
         let core_allocation = config.core_allocation.unwrap();

@@ -216,10 +216,14 @@ impl TemplateRendererActor {
         }
 
         // Phase 3: Render - Render the full page.
-        let mut env = (*self.env).clone();
-        if self.dev_mode {
-            env.set_loader(minijinja::path_loader("."));
-        }
+        let mut env = if self.dev_mode {
+            let mut new_env = Environment::new();
+            minijinja_contrib::add_to_environment(&mut new_env);
+            new_env.set_loader(minijinja::path_loader("."));
+            new_env
+        } else {
+            (*self.env).clone()
+        };
 
     let interpreter_clone = self.interpreter.clone();
         let health_actor_clone = self.health_actor.clone();
@@ -479,10 +483,14 @@ impl Handler<RenderTemplate> for TemplateRendererActor {
             return self.handle_post_request(msg);
         }
 
-        let mut env = (*self.env).clone();
-        if self.dev_mode {
-            env.set_loader(minijinja::path_loader("."));
-        }
+        let mut env = if self.dev_mode {
+            let mut new_env = Environment::new();
+            minijinja_contrib::add_to_environment(&mut new_env);
+            new_env.set_loader(minijinja::path_loader("."));
+            new_env
+        } else {
+            (*self.env).clone()
+        };
 
         let interpreter_clone = self.interpreter.clone();
         let health_actor_clone = self.health_actor.clone();

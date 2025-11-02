@@ -85,11 +85,12 @@ session:
 # -----------------------------------------------------------------------------
 # Settings for the built-in web server.
 # -----------------------------------------------------------------------------
-
 # Server IP bind for the web server
 server_address: 127.0.0.1
 # Port binding for the web server
 port: 8080
+# Enable or disable compression for responses.
+compression: false
 
 # -----------------------------------------------------------------------------
 # Resource Allocation

@@ -194,12 +194,15 @@ async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
 
     let server = HttpServer::new(move || {
         let mut app = App::new()
-            .wrap(actix_web::middleware::Compress::default())
+            .wrap(actix_web::middleware::Condition::new(
+                config::CONFIG.compression.unwrap_or(false),
+                actix_web::middleware::Compress::default(),
+            ))
             .app_data(server_state.clone())
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(true))
-            .route("/health", web::get().to(routing::health_check))
+            //.route("/health", web::get().to(routing::health_check))
             .app_data(web::Data::new(router_addr.clone()))
             .app_data(web::Data::new(ws_server.clone()))
             .route("/devws", web::get().to(dev_ws))
@@ -469,11 +472,14 @@ async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
 
     let server = HttpServer::new(move || {
         let mut app = App::new()
-            .wrap(actix_web::middleware::Compress::default())
+            .wrap(actix_web::middleware::Condition::new(
+                config::CONFIG.compression.unwrap_or(false),
+                actix_web::middleware::Compress::default(),
+            ))
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(false))
-            .route("/health", web::get().to(routing::health_check))
+            //.route("/health", web::get().to(routing::health_check))
             .route("/noventa-static/{filename:.*}", web::get().to(serve_embedded_file));
 
         let pages_dir = config::BASE_PATH.join("pages");
