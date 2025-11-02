@@ -24,6 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ]
             });
 
+            window.swup = swup;
+
             swup.hooks.on('visit:start', (visit) => {
                 if (swup.isPost) {
                     visit.scroll.reset = false;
