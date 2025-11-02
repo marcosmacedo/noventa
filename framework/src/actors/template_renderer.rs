@@ -432,10 +432,9 @@ impl TemplateRendererActor {
             scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-scripts2.min.js")));
             scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-head2.min.js")));
             scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/frontend.js")));
-            // We will not include devws.js for now to avoid conflicts with swup.
-            // if self.dev_mode {
-            //     scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
-            // }
+            if self.dev_mode {
+                scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
+            }
             result.insert_str(body_end_pos, &scripts);
         }
 
