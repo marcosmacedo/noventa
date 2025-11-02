@@ -3,7 +3,7 @@ use crate::actors::interpreter::{ExecuteFunction, PythonInterpreterActor};
 use crate::actors::page_renderer::{HttpRequestInfo, RenderOutput};
 use crate::actors::session_manager::SessionManagerActor;
 use crate::components::Component;
-use crate::config;
+use crate::{config, static_assets};
 use crate::errors::{ComponentInfo, DetailedError, ErrorSource};
 use actix::prelude::*;
 use minijinja::{Environment, State, value::Kwargs, Value};
@@ -425,17 +425,16 @@ impl TemplateRendererActor {
         let duration_ms = start_time.elapsed().as_secs_f64() * 1000.0;
         self.health_actor.do_send(ReportTemplateLatency(duration_ms));
 
-        if let Some(body_end_pos) = result.rfind("</body>") {
-            let mut scripts = String::new();
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup4.min.js")));
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-preload3.min.js")));
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-scripts2.min.js")));
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/swup-head2.min.js")));
-            scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/frontend.js")));
+        if config::CONFIG.disable_script_injection.unwrap_or(false) {
+            return Ok(result);
+        }
+
+        if let Some(head_end_pos) = result.rfind("</head>") {
+            let mut scripts = static_assets::get_script_tags();
             if self.dev_mode {
                 scripts.push_str(&format!("<script>{}</script>\n", include_str!("../scripts/devws.js")));
             }
-            result.insert_str(body_end_pos, &scripts);
+            result.insert_str(head_end_pos, &scripts);
         }
 
         Ok(result)

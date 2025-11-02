@@ -76,6 +76,7 @@ pub struct Config {
     pub static_url_prefix: Option<String>,
     pub session: Option<SessionConfig>,
     pub log_level: Option<String>,
+    pub disable_script_injection: Option<bool>,
 }
 
 lazy_static! {

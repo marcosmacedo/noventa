@@ -2296,6 +2296,7 @@ dependencies = [
  "serde_urlencoded",
  "serde_with",
  "serde_yaml",
+ "sha2",
  "tempfile",
  "tokio",
  "tower 0.4.13",

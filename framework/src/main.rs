@@ -1,7 +1,7 @@
 pub mod scripts;
 use actix::prelude::*;
 use actix_session::Session;
-use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}};
+use actix_web::{web, App, HttpRequest, HttpServer, Error, cookie::{Key, SameSite}, HttpResponse};
 use actix_session::config::PersistentSession;
 use actix_session::{
     storage::{CookieSessionStore, RedisSessionStore},
@@ -29,6 +29,7 @@ mod logger;
 mod templates;
 mod errors;
 mod lsp;
+mod static_assets;
 
 use actors::health::HealthActor;
 use actors::interpreter::PythonInterpreterActor;
@@ -203,6 +204,7 @@ async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
             .app_data(web::Data::new(router_addr.clone()))
             .app_data(web::Data::new(ws_server.clone()))
             .route("/devws", web::get().to(dev_ws))
+            .route("/noventa-static/{filename:.*}", web::get().to(serve_embedded_file))
             .default_service(web::route().to(routing::dynamic_route_handler));
 
         if let Some(static_path_str) = &config::CONFIG.static_path {
@@ -472,7 +474,8 @@ async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
             .app_data(renderer_data.clone())
             .app_data(web::Data::new(health_actor_addr.clone()))
             .app_data(web::Data::new(false))
-            .route("/health", web::get().to(routing::health_check));
+            .route("/health", web::get().to(routing::health_check))
+            .route("/noventa-static/{filename:.*}", web::get().to(serve_embedded_file));
 
         let pages_dir = config::BASE_PATH.join("pages");
         let routes = routing::get_compiled_routes(&pages_dir);
@@ -608,6 +611,16 @@ async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
     );
 
     Ok(server.run())
+}
+
+async fn serve_embedded_file(path: web::Path<String>) -> HttpResponse {
+    let filename = path.into_inner();
+    match static_assets::EMBEDDED_FILES.get(&filename) {
+        Some(file) => HttpResponse::Ok()
+            .content_type(file.content_type)
+            .body(file.content),
+        None => HttpResponse::NotFound().finish(),
+    }
 }
 
 
