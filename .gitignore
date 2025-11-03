@@ -1,11 +1,12 @@
 noventa.db
 vscode_extension/node_modules
 out/
-build/
+build/dist/
 .DS_Store
 framework/starter/.git
 target/rust-analyzer/flycheck0
 .vscode
-dist/
 AGENTS.md
 target/
+python_package/build/
+.DS_Store

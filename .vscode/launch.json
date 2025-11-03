@@ -19,7 +19,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/framework/target/debug/noventa",
       "args": ["dev"],
-      "cwd": "/Users/marcos/Documents/page",
+      "cwd": "/Users/marcos/testn3",
       "preLaunchTask": "cargo build",
       "env": {
         "DYLD_LIBRARY_PATH": "/Users/marcos/.conda/envs/py310/lib:$DYLD_LIBRARY_PATH",
