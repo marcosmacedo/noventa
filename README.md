@@ -1,78 +1,72 @@
-![Noventa Banner](banner.jpeg)
----
+<p align="center">
+  <img src="logo.jpg" alt="Noventa Banner" width="70%">
+</p>
 
-## 🪩 The Web Framework That Feels Like a Party for Developers
+### 🪩 **Noventa:** The Web Framework for Vibe-Coding
 
-**Noventa** is more than just a framework — it’s a *vibe*.
-Designed for creators, builders, and dreamers who want to ship things that work beautifully **without fighting the framework**.
+Designed for creators, builders, and dreamers who want to ship beautiful, functional software — **without fighting the framework**.
 
-Built with **AI UX as the first-class citizen**, Noventa is engineered so that **AI Agents understand, collaborate, and code with you**. Whether you’re building alone or with AI pair programmers, Noventa helps you move from idea → code → IPO effortlessly.
+Built with an **AI-centric architecture**, Noventa is engineered so **AI agents can understand, collaborate, and code with you**. Whether you’re solo-building or pair-programming with AI, Noventa helps you move seamlessly from idea → code → product.
 
----
+Use Python and HTML to build beautiful, performant websites that feel like a Single Page Application.
+
+## ⚠️ Alpha Notice
+
+🚧 **Noventa is currently in Alpha.**
+Expect rapid changes and the occasional bug.
+If you find one, please [open an issue](https://github.com/marcosmacedo/noventa/issues) — your feedback helps us improve fast.
 
 ## ⚡ Why Noventa?
 
-💫 **AI-First Design Philosophy**
-Crafted so AI tools can understand, generate, and refactor code within Noventa with high accuracy. Perfect for “vibe coding” or AI-assisted dev sessions.
+💫 **AI-First Design Philosophy:**
+Crafted for AI-assisted development — Noventa’s structure makes it easy for agents to understand, generate, and refactor code.
 
-🚀 **Blazing Fast Core**
-Rust powers the core — giving you **low overhead**, **strong safety**, and **ridiculous performance**.
+🚀 **Blazing-Fast Core:**
+Built on Rust for **performance**, **safety**, and **low overhead**.
 
-🐍 **Python for the Flow**
-Business logic, integrations, and app orchestration are written in Python — expressive, friendly, and deeply flexible.
+🐍 **Python for the Flow:**
+Business logic, integrations, and orchestration in expressive, flexible Python.
 
-🔒 **Secure & Production-Ready**
-Modern security baked in. Ship confidently from prototype to production.
+🔒 **Secure**
+Modern security practices baked in. Ship confidently from prototype to production.
 
 🌈 **Opinionated Yet Inclusive**
-Noventa doesn’t aim to fit every use case — and that’s a feature. With minimal setup, you’ll have a stunning, app that just *feels right*.
+Delightful defaults that *just feel right*, with minimal setup.
 
-🎶 **Feels Like a Party**
-Coding should feel creative, collaborative, and energizing. Noventa turns your workflow into a jam session — quick iterations, colorful outcomes, and a little bit of disco magic.
-
----
-
-## 🪄 Core Features
-
-| Feature                   | Description                                                   |
-| ------------------------- | ------------------------------------------------------------- |
-| 🧩 **AI UX Native**       | Optimized so AI understands structure, naming, and context.   |
-| ⚙️ **Rust Core**          | High-performance, low-overhead engine for speed and safety.   |
-| 🐍 **Python Logic Layer** | Friendly syntax and easy integration with data science tools. |
-| 🛡️ **Secure by Default** | Built with security best practices out of the box.            |
-| 🧠 **Reactive & Smart**   | State management that just works — no boilerplate.            |
-| 🎨 **Batteries Included** | Templates, components, and tools ready to go.                 |
-
----
+🎶 **Feels Like a Party:**
+Coding with Noventa feels creative and energizing. Noventa makes development feel like a jam session — fast, fun, and full of disco energy.
 
 ## 🏁 Quick Start
 
-See the docs
+**Install the CLI**
 
----
+```bash
+pip install noventa
+```
 
-## 🌍 Community & Vibes
+**Create a new project**
 
-Join the **Noventa Movement**:
+```bash
+noventa new
+```
 
-* 💬 Chat with other vibecoders
-* 🧑‍💻 Share your builds and ideas
-* 🎁 Contribute — everyone’s welcome
+**Run the development server**
 
-> “Noventa is the sound of code that *feels good*.”
+```bash
+noventa dev
+```
 
----
+**Install the VS Code Extension**
+
+> Search **“Noventa”** in the VS Code Marketplace
+
+That’s it — you’re ready to **vibe-code** your next web app. ✨
+
+## 📘 Learn More
+
+For detailed guides, API references, and examples, visit our docs:
+👉 [**noventa.dev/docs**](https://noventa.dev/docs)
 
 ## 🪅 License
 
-Licensed under the **MIT License**.
-
----
-
-## 💖 A Note from the Team
-
-Noventa is built for joy — for the *90% of us* who just want tools that get out of the way and let creativity shine. Whether you’re coding for work, art, or curiosity, we’re glad you’re here.
-
-> **Noventa — because building should feel like a celebration.**
-
----
+Licensed under the **Apache 2.0 License**.

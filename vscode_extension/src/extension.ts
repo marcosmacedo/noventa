@@ -38,6 +38,17 @@ export async function activate(context: vscode.ExtensionContext) {
           outputChannel.appendLine(`Connection failed: ${err.message}. Retrying in 5 seconds...`);
           setTimeout(connectToServer, 5000);
         });
+
+        socket.on('close', () => {
+          outputChannel.appendLine('Connection to server closed. Attempting to reconnect...');
+          if (client) {
+            client.stop().then(() => {
+              activate(context);
+            });
+          } else {
+            activate(context);
+          }
+        });
       };
 
       connectToServer();

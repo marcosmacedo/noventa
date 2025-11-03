@@ -9,8 +9,8 @@ use std::collections::HashMap;
 //     include_str!("tools_yaml/component_generator.yaml");
 // const CONFIG_EXPLAINER: &str =
 //     include_str!("tools_yaml/config_explainer.yaml");
-const DATABASE_MIGRATION_HELPER: &str =
-    include_str!("tools_yaml/database_migration_helper.yaml");
+// const DATABASE_MIGRATION_HELPER: &str =
+//     include_str!("tools_yaml/database_migration_helper.yaml");
 // const DYNAMIC_ROUTING_EXPLAINER: &str =
 //     include_str!("tools_yaml/dynamic_routing_explainer.yaml");
 // const NEW_PAGE_CREATOR: &str =
@@ -26,7 +26,7 @@ static TOOLS: Lazy<HashMap<String, InteractiveTool>> = Lazy::new(|| {
         // API_INTEGRATION_HELPER,
         // COMPONENT_GENERATOR,
         // CONFIG_EXPLAINER,
-        DATABASE_MIGRATION_HELPER,
+        // DATABASE_MIGRATION_HELPER,
         // DYNAMIC_ROUTING_EXPLAINER,
         // NEW_PAGE_CREATOR,
         // ONBOARDING_GUIDE,

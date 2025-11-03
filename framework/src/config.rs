@@ -118,7 +118,7 @@ cfg_if! {
                     Err(e) => {
                         match e {
                             ConfigError::Io(_) => {
-                                println!("I couldn't find the `config.yaml` file. Make sure it's in the same directory you're running the application from or a parent directory.");
+                                println!("The `config.yaml` file was not found. Please ensure it's in the same directory you're running the application from (current working directory).");
                             },
                             ConfigError::Parse(err) => {
                                 println!("There seems to be a syntax error in your `config.yaml` file. Please check the formatting.");

@@ -26,6 +26,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             window.swup = swup;
 
+            const handleRedirect = (response) => {
+                if (response && response.headers.has('X-Noventa-Redirect')) {
+                    const redirectHeader = response.headers.get('X-Noventa-Redirect');
+                    const redirectUrl = new URL(redirectHeader, window.location.origin);
+                    swup.navigate(redirectUrl.href, { cache: false });
+                    return true;
+                }
+                return false;
+            };
+
             swup.hooks.on('visit:start', (visit) => {
                 if (swup.isPost) {
                     visit.scroll.reset = false;
@@ -33,17 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
-            swup.hooks.on('page:load', (visit, { page,
-                options }) => {
-                if (page.response && page.response.headers.has('X-Noventa-Redirect')) {
-                    const redirectHeader = page.response.headers.get('X-Noventa-Redirect');
-                    const redirectUrl = new URL(redirectHeader, window.location.origin);
-                    if (redirectUrl.origin === window.location.origin) {
-                        swup.navigate(redirectUrl.href);
-                    } else {
-                        window.location.href = redirectUrl.href;
-                    }
-                }
+            swup.hooks.on('page:load', (visit, { page }) => {
+                handleRedirect(page.response);
             });
 
             swup.hooks.on('visit:end', (visit) => {
@@ -74,10 +75,20 @@ document.addEventListener('DOMContentLoaded', () => {
                             swup.navigate(`${url}?${params.toString()}`);
                         } else {
                             swup.isPost = true;
-                            swup.navigate(url, {
+                            fetch(url, {
                                 method: 'POST',
                                 body: formData,
-                                cache: false
+                                headers: {
+                                    'X-Requested-With': 'swup',
+                                }
+                            }).then(response => {
+                                if (!handleRedirect(response)) {
+                                    return response.text();
+                                }
+                            }).then(html => {
+                                if (html) {
+                                    swup.loadPage({ url: window.location.href, html: html });
+                                }
                             });
                         }
                     } else {
