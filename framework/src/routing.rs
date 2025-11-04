@@ -34,8 +34,8 @@ pub fn get_compiled_routes(pages_dir: &Path) -> Vec<CompiledRoute> {
         .collect();
 
     routes.sort_by(|(a, _), (b, _)| {
-        let a_parts = a.split('/').count();
-        let b_parts = b.split('/').count();
+        let a_parts = Path::new(a).components().count();
+        let b_parts = Path::new(b).components().count();
         let a_is_dynamic = a.contains('{');
         let b_is_dynamic = b.contains('{');
 
@@ -65,9 +65,15 @@ pub fn get_compiled_routes(pages_dir: &Path) -> Vec<CompiledRoute> {
 fn compile_route(route_pattern: String, template_path: PathBuf) -> CompiledRoute {
     let mut param_names = Vec::new();
     
-    let parts: Vec<String> = route_pattern
-        .split('/')
-        .skip(1) // Skip the initial empty string from the leading "/"
+    let parts: Vec<String> = std::path::Path::new(&route_pattern)
+        .components()
+        .filter_map(|comp| {
+            let part = comp.as_os_str().to_string_lossy();
+            if part == "/" {
+                return None;
+            }
+            Some(part.to_string())
+        })
         .map(|part| {
             if part.starts_with('{') && part.ends_with('}') {
                 let param_name = &part[1..part.len() - 1];
@@ -75,7 +81,7 @@ fn compile_route(route_pattern: String, template_path: PathBuf) -> CompiledRoute
                 param_names.push(sanitized_name.clone());
                 format!(r"(?P<{}>[^/]+)", sanitized_name)
             } else {
-                regex::escape(part)
+                regex::escape(&part)
             }
         })
         .collect();
@@ -362,11 +368,6 @@ pub async fn handle_page_native(
     let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
     let full_template_path = template_path.get_ref().clone();
     let template_path_str = std::path::Path::new(&full_template_path).strip_prefix(&*crate::config::BASE_PATH).unwrap_or(std::path::Path::new(&full_template_path)).to_str().unwrap().to_string();
-    let template_path_str = if template_path_str.starts_with("/") {
-        template_path_str[1..].to_string()
-    } else {
-        template_path_str
-    };
     handle_page(req, payload, renderer, session, template_path_str, path_params.into_inner(), dev_mode).await
 }
 
@@ -520,11 +521,6 @@ mod tests {
                         route.template_path.strip_prefix(pages_dir).unwrap().to_str().unwrap().to_string()
                     } else {
                         route.template_path.to_str().unwrap().to_string()
-                    };
-                    let template_path_str = if template_path_str.starts_with("/") {
-                        template_path_str[1..].to_string()
-                    } else {
-                        template_path_str
                     };
                     Some((template_path_str, params))
                 } else {

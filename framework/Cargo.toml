@@ -11,7 +11,7 @@ actix-web-actors = "4.3.0"
 actix-files = "0.6.2"
 actix-session = { version = "0.11.0", features = ["cookie-session", "redis-session", "redis-session-rustls", "redis-pool"] }
 rand = "0.8"
-pyo3 = { version = "0.26.0", features = ["auto-initialize", "multiple-pymethods", "abi3-py310"] }
+pyo3 = { version = "0.26.0", features = ["auto-initialize", "multiple-pymethods", "abi3-py310", "generate-import-lib"] }
 pythonize = "0.26.0"
 serde-pyobject = "0.7.0"
 log = "0.4"

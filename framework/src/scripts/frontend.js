@@ -86,9 +86,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                     return response.text();
                                 }
                             }).then(html => {
-                                if (html) {
-                                    swup.loadPage({ url: window.location.href, html: html });
-                                }
+                                swup.cache.set(window.location.href, { 
+                                    url: window.location.href, 
+                                    html: html 
+                                });
+
+                                // Now navigate to it — swup will use the cached version
+                                swup.navigate(window.location.href);
                             });
                         }
                     } else {

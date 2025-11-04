@@ -65,11 +65,6 @@ impl Handler<MatchRoute> for RouterActor {
 
                 log::info!("RouterActor matched route '{}' for path '{}', template: '{}', params: {:?}", route.route_pattern, path, route.template_path.display(), params);
                 let template_path_str = route.template_path.strip_prefix(&*config::BASE_PATH).unwrap_or(&route.template_path).to_str().unwrap().to_string();
-                let template_path_str = if template_path_str.starts_with("/") {
-                    template_path_str[1..].to_string()
-                } else {
-                    template_path_str
-                };
                 return Some((template_path_str, params));
             }
         }

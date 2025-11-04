@@ -90,7 +90,9 @@ fn get_path_type(path: &std::path::Path) -> PathType {
         return PathType::Directory;
     }
 
-    if path_str.contains("components/") {
+    let components: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
+
+    if components.contains(&std::ffi::OsStr::new("components")) {
         let file_name = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
         let parent_folder = path.parent().unwrap_or(path).file_name().unwrap_or_default().to_str().unwrap_or_default().to_string();
 
@@ -101,11 +103,21 @@ fn get_path_type(path: &std::path::Path) -> PathType {
         } else if file_name.ends_with("_models.py") {
             return PathType::ComponentModel(parent_folder);
         }
-    } else if let Some(pages_index) = path_str.find("/pages/") {
+    } else if components.contains(&std::ffi::OsStr::new("pages")) {
         if path_str.ends_with(".html") {
-            let route_part = &path_str[pages_index + "/pages/".len()..];
-            let route = route_part.strip_suffix(".html").unwrap_or(route_part);
-            let route = route.strip_suffix("index").unwrap_or(route);
+            let route_parts: Vec<_> = path.strip_prefix(
+                path.ancestors()
+                    .find(|a| a.ends_with("pages"))
+                    .unwrap_or(path),
+            )
+            .unwrap_or(path)
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+
+            let route = route_parts.join("/");
+            let route = route.strip_suffix(".html").unwrap_or(&route);
+            let route = route.strip_suffix("index").unwrap_or(&route);
             let route = route.trim_end_matches('/');
             let route = if route.is_empty() { "/" } else { route };
             let route = if !route.starts_with('/') {
@@ -115,7 +127,7 @@ fn get_path_type(path: &std::path::Path) -> PathType {
             };
             return PathType::PageTemplate(route);
         }
-    } else if path_str.contains("/layouts/") && path_str.ends_with(".html") {
+    } else if components.contains(&std::ffi::OsStr::new("layouts")) && path_str.ends_with(".html") {
         return PathType::PageLayout;
     }
 

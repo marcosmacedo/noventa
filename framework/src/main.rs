@@ -212,7 +212,7 @@ async fn run_dev_server() -> std::io::Result<actix_web::dev::Server> {
             .default_service(web::route().to(routing::dynamic_route_handler));
 
         if let Some(static_path_str) = &config::CONFIG.static_path {
-            let static_path = if static_path_str.starts_with('/') {
+            let static_path = if std::path::Path::new(static_path_str).is_absolute() {
                 std::path::PathBuf::from(static_path_str).clean()
             } else {
                 config::BASE_PATH.join(static_path_str).clean()
@@ -549,7 +549,7 @@ async fn run_prod_server() -> std::io::Result<actix_web::dev::Server> {
         }
 
         if let Some(static_path_str) = &config::CONFIG.static_path {
-            let static_path = if static_path_str.starts_with('/') {
+            let static_path = if std::path::Path::new(static_path_str).is_absolute() {
                 std::path::PathBuf::from(static_path_str).clean()
             } else {
                 config::BASE_PATH.join(static_path_str).clean()
