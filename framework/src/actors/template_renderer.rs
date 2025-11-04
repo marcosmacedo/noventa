@@ -43,6 +43,7 @@ impl TemplateRendererActor {
     ) -> Self {
         let mut env = Environment::new();
         minijinja_contrib::add_to_environment(&mut env);
+        env.add_filter("format", format_filter);
         env.set_loader(minijinja::path_loader(config::BASE_PATH.to_str().unwrap()));
 
         Self {
@@ -700,6 +701,73 @@ fn path_to_module(path_str: &str) -> Result<String, std::io::Error> {
     Ok(module_path)
 }
 
+fn format_filter(format_string: String, args: minijinja::value::Rest<Value>) -> Result<String, minijinja::Error> {
+    let mut arg_iter = args.iter();
+    let mut result = String::new();
+    let mut chars = format_string.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '{' {
+            if chars.peek() == Some(&'{') {
+                chars.next(); // Consume the second '{'
+                result.push('{');
+            } else {
+                let mut spec = String::new();
+                let mut closed = false;
+                while let Some(next_c) = chars.next() {
+                    if next_c == '}' {
+                        closed = true;
+                        break;
+                    }
+                    spec.push(next_c);
+                }
+
+                if !closed {
+                    return Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Unclosed format specifier"));
+                }
+
+                let arg = arg_iter.next().ok_or_else(|| minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Not enough arguments for format string"))?;
+
+                if spec.is_empty() {
+                    result.push_str(&arg.to_string());
+                } else {
+                    // Handle format specifiers like {:.2f}
+                    if arg.is_number() {
+                        let f = arg.to_string().parse::<f64>().unwrap_or(0.0);
+                        if spec.starts_with(':') && spec.ends_with('f') {
+                            if let Some(precision) = spec.trim_start_matches(':').trim_end_matches('f').split('.').nth(1) {
+                                if let Ok(p) = precision.parse::<usize>() {
+                                    result.push_str(&format!("{:.1$}", f, p));
+                                } else {
+                                    result.push_str(&arg.to_string());
+                                }
+                            } else {
+                                result.push_str(&arg.to_string());
+                            }
+                        } else {
+                             result.push_str(&arg.to_string());
+                        }
+                    } else {
+                        result.push_str(&arg.to_string());
+                    }
+                }
+            }
+        } else if c == '}' {
+            if chars.peek() == Some(&'}') {
+                chars.next(); // Consume the second '}'
+                result.push('}');
+            } else {
+                return Err(minijinja::Error::new(minijinja::ErrorKind::InvalidOperation, "Single '}' found in format string"));
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    Ok(result)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,5 +789,24 @@ mod tests {
         // Test edge cases
         assert_eq!(path_to_module("single").unwrap(), "single");
         assert_eq!(path_to_module("a/b/c.py").unwrap(), "a.b.c");
+    }
+
+    #[test]
+    fn test_format_filter() {
+        // Basic formatting
+        let result = format_filter("Hello, {}".to_string(), minijinja::value::Rest(vec![Value::from("world")])).unwrap();
+        assert_eq!(result, "Hello, world");
+
+        // Multiple arguments
+        let result = format_filter("{}, {}".to_string(), minijinja::value::Rest(vec![Value::from("Hello"), Value::from("world")])).unwrap();
+        assert_eq!(result, "Hello, world");
+
+        // Decimal formatting
+        let result = format_filter("{:.2f}".to_string(), minijinja::value::Rest(vec![Value::from(3.14159)])).unwrap();
+        assert_eq!(result, "3.14");
+
+        // Escaped braces
+        let result = format_filter("{{}}".to_string(), minijinja::value::Rest(vec![])).unwrap();
+        assert_eq!(result, "{}");
     }
 }

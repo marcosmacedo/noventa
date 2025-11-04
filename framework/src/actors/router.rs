@@ -63,7 +63,7 @@ impl Handler<MatchRoute> for RouterActor {
                     })
                     .collect();
 
-                log::info!("RouterActor matched route '{}' for path '{}', template: '{}', params: {:?}", route.route_pattern, path, route.template_path.display(), params);
+                log::debug!("RouterActor matched route '{}' for path '{}', template: '{}', params: {:?}", route.route_pattern, path, route.template_path.display(), params);
                 let template_path_str = route.template_path.strip_prefix(&*config::BASE_PATH).unwrap_or(&route.template_path).to_str().unwrap().to_string();
                 return Some((template_path_str, params));
             }

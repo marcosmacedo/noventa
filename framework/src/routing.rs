@@ -339,7 +339,7 @@ pub async fn dynamic_route_handler(
     let path = req.path().to_string();
     match router.send(MatchRoute(path.clone())).await {
         Ok(Some((template_path, path_params))) => {
-            log::info!("Dev handler matched route for path '{}', template: '{}', params: {:?}", path, template_path, path_params);
+            log::debug!("Dev handler matched route for path '{}', template: '{}', params: {:?}", path, template_path, path_params);
             let dev_mode = req.app_data::<web::Data<bool>>().map_or(false, |d| *d.get_ref());
             handle_page(req, payload, renderer, session, template_path, path_params, dev_mode).await
         }
