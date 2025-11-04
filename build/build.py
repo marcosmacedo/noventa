@@ -74,7 +74,7 @@ def get_platform_tag(platform):
     elif platform == "linux":
         return "manylinux1_x86_64"
     elif platform == "linux-aarch64":
-        return "manylinux1_aarch64"
+        return "manylinux2014_aarch64"
     elif platform == "windows-amd64":
         return "win_amd64"
     return None
